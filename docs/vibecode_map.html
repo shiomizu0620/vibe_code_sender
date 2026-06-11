@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VibeCode — 開発マップ</title>
+<style>
+  :root{
+    --bg:#0e1014; --panel:#161a22; --panel2:#1c212b; --line:#2a313d;
+    --ink:#e8ebf1; --mut:#8c95a6; --faint:#5d6675;
+    --a:#f4a52a;   /* A: 振動 */
+    --b:#3fb6f5;   /* B: 画面 */
+    --me:#54e08a;  /* 自分: 受信 */
+    --co:#a78bfa;  /* 共通/結合 */
+    --st:#667;     /* stretch */
+    --mono:ui-monospace,"SFMono-Regular","Cascadia Code","Consolas",monospace;
+    --sans:system-ui,"Segoe UI","Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:
+      radial-gradient(1200px 600px at 70% -10%, #1a2030 0%, transparent 60%),
+      var(--bg);
+    color:var(--ink);font-family:var(--sans);line-height:1.5;
+    padding:34px 26px 60px;}
+  .wrap{max-width:1180px;margin:0 auto}
+
+  /* header */
+  header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;
+    border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px}
+  h1{font-family:var(--mono);font-size:26px;letter-spacing:.5px;margin:0;font-weight:600}
+  h1 .dim{color:var(--faint)}
+  .pulse{font-family:var(--mono);color:var(--me);font-size:15px;letter-spacing:2px;margin-top:8px}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-family:var(--mono);font-size:12.5px}
+  .legend span{display:flex;align-items:center;gap:6px;color:var(--mut)}
+  .dot{width:10px;height:10px;border-radius:2px;display:inline-block}
+
+  .sectitle{font-family:var(--mono);font-size:12px;letter-spacing:3px;color:var(--faint);
+    text-transform:uppercase;margin:34px 0 14px;display:flex;align-items:center;gap:12px}
+  .sectitle::after{content:"";flex:1;height:1px;background:var(--line)}
+
+  /* pipeline */
+  .pipe{display:flex;gap:0;align-items:stretch;overflow-x:auto;padding-bottom:6px}
+  .stage{min-width:150px;flex:1;background:var(--panel);border:1px solid var(--line);
+    border-radius:10px;padding:13px 13px 12px;position:relative}
+  .stage + .stage{margin-left:26px}
+  .stage::before{content:"›";position:absolute;left:-19px;top:50%;transform:translateY(-50%);
+    color:var(--faint);font-size:20px;font-family:var(--mono)}
+  .stage:first-child::before{display:none}
+  .stage .n{font-family:var(--mono);font-size:11px;color:var(--faint)}
+  .stage .t{font-weight:600;font-size:14px;margin:3px 0 9px}
+  .tag{font-family:var(--mono);font-size:11px;padding:2px 7px;border-radius:999px;
+    display:inline-block;border:1px solid currentColor}
+  .ta{color:var(--a)} .tb{color:var(--b)} .tme{color:var(--me)} .tco{color:var(--co)}
+
+  /* lanes */
+  .lane{display:grid;grid-template-columns:128px 1fr;gap:16px;align-items:center;
+    background:var(--panel);border:1px solid var(--line);border-left-width:3px;
+    border-radius:10px;padding:14px 16px;margin-bottom:12px}
+  .lane.A{border-left-color:var(--a)} .lane.B{border-left-color:var(--b)}
+  .lane.ME{border-left-color:var(--me)} .lane.CO{border-left-color:var(--co)}
+  .lhead .who{font-weight:700;font-size:15px}
+  .lhead .role{font-family:var(--mono);font-size:11.5px;color:var(--mut);margin-top:2px}
+  .lhead .px{font-family:var(--mono);font-size:11px;margin-top:6px}
+  .pa{color:var(--a)} .pb{color:var(--b)} .pme{color:var(--me)} .pco{color:var(--co)}
+  .track{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{display:flex;flex-direction:column;gap:2px;background:var(--panel2);
+    border:1px solid var(--line);border-radius:8px;padding:7px 10px;min-width:118px;position:relative}
+  .chip .id{font-family:var(--mono);font-weight:700;font-size:12.5px}
+  .chip .ds{font-size:11.5px;color:var(--mut);line-height:1.35}
+  .chip.star{border-color:#3a4a3f;box-shadow:inset 0 0 0 1px rgba(84,224,138,.15)}
+  .chip .badge{position:absolute;top:-8px;right:-6px;font-size:9px;font-family:var(--mono);
+    background:var(--me);color:#06210f;border-radius:4px;padding:1px 5px;font-weight:700}
+  .chip.done .id{color:var(--me)}
+  .chip.wait{border-style:dashed}
+  .arrow{align-self:center;color:var(--faint);font-family:var(--mono)}
+  .ca{color:var(--a)} .cb{color:var(--b)} .cme{color:var(--me)} .cco{color:var(--co)}
+
+  /* sync points */
+  .syncs{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+  .sync{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);
+    border-radius:10px;padding:14px 15px}
+  .sync .h{font-family:var(--mono);font-size:13px;font-weight:700;margin-bottom:6px;color:var(--co)}
+  .sync .h b{color:var(--ink)}
+  .sync p{margin:0;font-size:12.5px;color:var(--mut)}
+
+  /* stretch */
+  .stretch{display:flex;flex-wrap:wrap;gap:8px}
+  .scard{background:var(--panel);border:1px dashed var(--line);border-radius:8px;
+    padding:8px 11px;font-size:12px;color:var(--faint)}
+  .scard b{font-family:var(--mono);color:#8a93a5}
+
+  .note{font-size:12px;color:var(--faint);margin-top:26px;font-family:var(--mono)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1>VibeCode <span class="dim">/ 開発マップ</span></h1>
+      <div class="pulse">●  ━  ●  ●  ━  ●  ━ &nbsp;→&nbsp; 01101 &nbsp;→&nbsp; id &nbsp;→&nbsp; URL</div>
+    </div>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--a)"></i>A ｜振動担当</span>
+      <span><i class="dot" style="background:var(--b)"></i>B ｜画面担当</span>
+      <span><i class="dot" style="background:var(--me)"></i>自分 ｜受信担当</span>
+      <span><i class="dot" style="background:var(--co)"></i>共通・結合</span>
+    </div>
+  </header>
+
+  <!-- DATA FLOW -->
+  <div class="sectitle">データの流れ（１回の送信で何が起きるか）</div>
+  <div class="pipe">
+    <div class="stage"><div class="n">01</div><div class="t">スマホが振動する</div><span class="tag ta">A / B</span> <span class="tag tb">F1–F6</span></div>
+    <div class="stage"><div class="n">02</div><div class="t">マイクで拾う</div><span class="tag tme">自分 · R4</span></div>
+    <div class="stage"><div class="n">03</div><div class="t">ON/OFFに変換</div><span class="tag tme">自分 · R2</span></div>
+    <div class="stage"><div class="n">04</div><div class="t">短/長 → id を復元</div><span class="tag tme">自分 · R1 ✓</span></div>
+    <div class="stage"><div class="n">05</div><div class="t">id で URL を検索</div><span class="tag tme">自分 · R9</span></div>
+    <div class="stage"><div class="n">06</div><div class="t">ブラウザで開く</div><span class="tag tme">自分 · R7 / R10</span></div>
+  </div>
+  <div class="note">※ 事前準備として「URL登録 → id発行」が上流にある（共通 S1 ＋ 送信 F9）。</div>
+
+  <!-- LANES -->
+  <div class="sectitle">誰が・どの順で作るか</div>
+
+  <div class="lane A">
+    <div class="lhead"><div class="who">Aさん</div><div class="role">振動担当<br>（震わせる下回り）</div><div class="px pa">Flutter</div></div>
+    <div class="track">
+      <div class="chip"><span class="id ca">F1</span><span class="ds">振動の基盤</span></div>
+      <span class="arrow">→</span>
+      <div class="chip"><span class="id ca">F2</span><span class="ds">パターン生成<br>（プリアンブル＋短長）</span></div>
+      <span class="arrow">→</span>
+      <div class="chip"><span class="id ca">F6</span><span class="ds">自動演奏</span></div>
+      <span class="arrow">→</span>
+      <div class="chip"><span class="id ca">F8</span><span class="ds">実機録音<br>→ R8の材料</span><span class="badge" style="background:var(--a);color:#241500">KEY</span></div>
+    </div>
+  </div>
+
+  <div class="lane B">
+    <div class="lhead"><div class="who">Bさん</div><div class="role">画面担当<br>（見せて演奏させる）</div><div class="px pb">Flutter</div></div>
+    <div class="track">
+      <div class="chip"><span class="id cb">F3</span><span class="ds">encoder<br>（id→ビット列）</span></div>
+      <span class="arrow">→</span>
+      <div class="chip star"><span class="id cb">F4</span><span class="ds">楽譜表示 ★</span></div>
+      <span class="arrow">→</span>
+      <div class="chip star"><span class="id cb">F5</span><span class="ds">手動演奏ボタン ★</span></div>
+      <span class="arrow">→</span>
+      <div class="chip"><span class="id cb">F7</span><span class="ds">id入力（テスト用）</span></div>
+    </div>
+  </div>
+
+  <div class="lane ME">
+    <div class="lhead"><div class="who">自分</div><div class="role">受信担当<br>（読み取って開く）</div><div class="px pme">Python</div></div>
+    <div class="track">
+      <div class="chip done"><span class="id">R1</span><span class="ds">起動確認 ✓</span></div>
+      <span class="arrow">→</span>
+      <div class="chip"><span class="id cme">R2</span><span class="ds">dsp：音→ON/OFF</span></div>
+      <span class="arrow">→</span>
+      <div class="chip"><span class="id cme">R3</span><span class="ds">チャンネル＋偽センサー</span></div>
+      <span class="arrow">→</span>
+      <div class="chip"><span class="id cme">R4</span><span class="ds">マイク入力</span></div>
+      <span class="arrow">→</span>
+      <div class="chip"><span class="id cme">R5</span><span class="ds">デバッグ可視化（目）</span></div>
+      <span class="arrow">→</span>
+      <div class="chip"><span class="id cme">R6</span><span class="ds">結合・受信ループ</span></div>
+      <span class="arrow">→</span>
+      <div class="chip"><span class="id cme">R7</span><span class="ds">ターミナル演出</span></div>
+      <span class="arrow">→</span>
+      <div class="chip wait"><span class="id cme">R8</span><span class="ds">実機チューニング<br>← F8待ち</span></div>
+      <span class="arrow">→</span>
+      <div class="chip wait"><span class="id cme">R9</span><span class="ds">Supabase逆引き<br>← S1待ち</span></div>
+      <span class="arrow">→</span>
+      <div class="chip"><span class="id cme">R10</span><span class="ds">通し（受信側完成）</span></div>
+    </div>
+  </div>
+
+  <div class="lane CO">
+    <div class="lhead"><div class="who">3人で</div><div class="role">共通・結合</div><div class="px pco">together</div></div>
+    <div class="track">
+      <div class="chip"><span class="id cco">S1</span><span class="ds">Supabase用意<br>（最初に決める）</span></div>
+      <span class="arrow">⇒</span>
+      <div class="chip"><span class="id cco">J1</span><span class="ds">通し結合<br>（自動→手動）</span></div>
+      <span class="arrow">→</span>
+      <div class="chip"><span class="id cco">J2</span><span class="ds">本番機チューニング</span></div>
+      <span class="arrow">→</span>
+      <div class="chip"><span class="id cco">J3</span><span class="ds">デモ・リハ</span></div>
+    </div>
+  </div>
+
+  <!-- SYNC POINTS -->
+  <div class="sectitle">待ち合わせ（レーンをまたぐ依存・ここだけ注意）</div>
+  <div class="syncs">
+    <div class="sync">
+      <div class="h">① <b>F8</b> ⟶ <b>R8</b></div>
+      <p>Aさんの実機録音が無いと、自分の受信チューニングが始められない。<b style="color:var(--a)">最優先で回収</b>（F2が終われば録れる）。</p>
+    </div>
+    <div class="sync">
+      <div class="h">② <b>S1</b> ⟶ <b>F9 / R9</b></div>
+      <p>Supabaseを誰のアカウントにするかの決めが、送信の登録(F9)と受信の逆引き(R9)を同時にブロック。<b style="color:var(--co)">初日に即決</b>。</p>
+    </div>
+    <div class="sync">
+      <div class="h">③ <b>F5 + F6 + R10</b> ⟶ <b>J1</b></div>
+      <p>送信（手動・自動）と受信完成が揃って初めて、実機で end-to-end の結合ができる。ここが全体のゴール手前。</p>
+    </div>
+  </div>
+
+  <!-- STRETCH -->
+  <div class="sectitle">拡張（本線 J1 が通ってから）</div>
+  <div class="stretch">
+    <div class="scard"><b>E1</b> ピエゾ受信</div>
+    <div class="scard"><b>E2</b> 机越し受信</div>
+    <div class="scard"><b>E3</b> IMU受信</div>
+    <div class="scard"><b>E4</b> 複数センサーAND判定</div>
+    <div class="scard"><b>X1</b> 直接符号化・送信（QR方式）</div>
+    <div class="scard"><b>X2</b> 直接符号化・受信</div>
+    <div class="scard">+ 対戦モード（早打ち対決）</div>
+  </div>
+
+  <div class="note">読み方：上＝1回の送信で起きること / 中＝担当ごとの作業順（左→右）/ 下＝レーンをまたぐ3つの待ち合わせ。★＝体験のコア、✓＝完了済み。</div>
+
+</div>
+</body>
+</html>
