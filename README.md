@@ -1,4 +1,4 @@
-# VibeCode（送信側 / sender）
+# vibe_code_sender（送信側 / sender）
 
 スマホの振動でURLを送る「**バイブコード**」の**送信側**アプリ（Flutter）。短い振動と長い振動の組み合わせでパターンを出力し、受信側（別リポジトリ・PC/Python）がそれを検知してURLを開く。
 
