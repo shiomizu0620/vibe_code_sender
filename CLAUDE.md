@@ -51,6 +51,24 @@ tests/
 - バンドパス帯域は送信実機の録音（Vibes側 F8 の成果物）をFFT/スペクトログラムで見て決める。
 - 机越し受信は振動の減衰が大きい。まず直置きで完成させ、机越しはピエゾチャンネル＋閾値調整で挑戦する（stretch）。
 
+## Git 運用ルール（ブランチ / PR）
+ブランチ名は `<type>/<issue番号>-<内容>` 形式。
+
+type の種類:
+
+- `feat` → 機能追加（ほとんどこれ）
+- `fix` → バグ修正
+- `docs` → ドキュメントのみの変更
+- `chore` → 設定・環境まわり（CI追加など）
+
+例: `feat/F1-vibrator-service` / `feat/F4-score-view` / `feat/R2-dsp` / `fix/F5-preamble-timing` / `docs/readme-rename` / `chore/github-actions-ci`
+
+運用ルール（3行）:
+
+- issueを着手したらそのissueの番号をブランチ名に入れる（F1/R2など）
+- 1issue = 1ブランチ = 1PR。複数issueをまとめない
+- PRのタイトルは `[F1] 振動の基盤実装` の形式（`[issue番号] 内容`）
+
 ## やらないこと（恒久）
 - 送信側のコード（Vibesリポジトリの担当）
 - PROTOCOL.md の単独変更（3人合意のみ）
