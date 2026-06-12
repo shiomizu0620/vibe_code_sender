@@ -36,7 +36,6 @@ class SenderPage extends StatefulWidget {
 
 class _SenderPageState extends State<SenderPage> {
   final VibratorService _vibrator = VibratorService();
-  final Encoder _encoder = Encoder();
 
   /// 端末が振動可能か。null は確認中。
   bool? _hasVibrator;
@@ -60,7 +59,7 @@ class _SenderPageState extends State<SenderPage> {
   void _playLong() => _vibrator.play(<int>[0, longMs]);
 
   /// サンプル列を再生。encoder → pattern_builder → vibrator の層を通す。
-  void _playSample() => _vibrator.play(buildPattern(_encoder.encode('demo')));
+  void _playSample() => _vibrator.play(buildPattern(encode(42)));
 
   @override
   Widget build(BuildContext context) {

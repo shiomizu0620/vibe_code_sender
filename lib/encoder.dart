@@ -1,20 +1,18 @@
 import 'pattern_builder.dart';
 
-/// 【スタブ】将来「コード文字列 → [Pulse] 列」に変換する符号化層。
+/// id(0..255) を [Pulse] 列に変換する（モードマーカー + 8bit MSB first）。
 ///
-/// この層を独立させておくことで、後から符号化モードを差し込める:
-///   - モードA（DB参照方式）: 短いID文字列を符号化する。
-///   - モードB（直接符号化）: URL自体を 0/1 に符号化する。
-///   - 先頭の「モード識別マーカー」もこの層で付与する想定。
+/// フレーム構成（PROTOCOL.md v1.0 idモード）:
+///   [モードマーカー 0=short] + [id 8bit MSB first] → 計9打
 ///
-/// **マイルストーン1では本実装しない。** 入力に関わらず固定のサンプル列
-/// （短・長・短・短）を返すだけのプレースホルダ。
-class Encoder {
-  /// 入力に関わらず固定のサンプル Pulse 列を返す（スタブ）。
-  List<Pulse> encode(String input) => const [
-    Pulse.short,
-    Pulse.long,
-    Pulse.short,
-    Pulse.short,
+/// id が 0〜255 の範囲外の場合は [RangeError] を投げる。
+List<Pulse> encode(int id) {
+  if (id < 0 || id > 255) {
+    throw RangeError.range(id, 0, 255, 'id');
+  }
+  return [
+    Pulse.short, // モードマーカー 0 = idモード
+    for (var i = 7; i >= 0; i--)
+      (id >> i) & 1 == 1 ? Pulse.long : Pulse.short,
   ];
 }
