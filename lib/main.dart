@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'constants.dart';
 import 'encoder.dart';
 import 'pattern_builder.dart';
+import 'score_view.dart';
 import 'vibrator_service.dart';
 
 void main() {
@@ -24,9 +25,6 @@ class VibeCodeApp extends StatelessWidget {
   }
 }
 
-/// マイルストーン1のテスト用画面。
-///
-/// 短/長の振動を任意の並びで出力できることを確認するための最小UI。
 class SenderPage extends StatefulWidget {
   const SenderPage({super.key});
 
@@ -37,12 +35,17 @@ class SenderPage extends StatefulWidget {
 class _SenderPageState extends State<SenderPage> {
   final VibratorService _vibrator = VibratorService();
 
-  /// 端末が振動可能か。null は確認中。
   bool? _hasVibrator;
+
+  // デモ用 id。F7 で入力欄に差し替える。
+  static const int _demoId = 42;
+  late List<Pulse> _pulses;
+  int _cursor = 0;
 
   @override
   void initState() {
     super.initState();
+    _pulses = encode(_demoId);
     _checkVibrator();
   }
 
@@ -52,14 +55,25 @@ class _SenderPageState extends State<SenderPage> {
     setState(() => _hasVibrator = available);
   }
 
-  /// 「短」を1発（初期待機0 + 短い振動）。
-  void _playShort() => _vibrator.play(<int>[0, shortMs]);
+  void _playShort() {
+    _vibrator.play(<int>[0, shortMs]);
+    _advance();
+  }
 
-  /// 「長」を1発（初期待機0 + 長い振動）。
-  void _playLong() => _vibrator.play(<int>[0, longMs]);
+  void _playLong() {
+    _vibrator.play(<int>[0, longMs]);
+    _advance();
+  }
 
-  /// サンプル列を再生。encoder → pattern_builder → vibrator の層を通す。
-  void _playSample() => _vibrator.play(buildPattern(encode(42)));
+  void _advance() {
+    if (_cursor < _pulses.length) {
+      setState(() => _cursor++);
+    }
+  }
+
+  void _reset() => setState(() => _cursor = 0);
+
+  bool get _isDone => _cursor >= _pulses.length;
 
   @override
   Widget build(BuildContext context) {
@@ -85,14 +99,47 @@ class _SenderPageState extends State<SenderPage> {
                     style: TextStyle(color: Colors.redAccent),
                   ),
                 ),
-              ElevatedButton(onPressed: _playShort, child: const Text('短 を1発')),
-              const SizedBox(height: 12),
-              ElevatedButton(onPressed: _playLong, child: const Text('長 を1発')),
-              const SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: _playSample,
-                child: const Text('サンプル列（短・長・短・短）'),
+              Text(
+                'id: $_demoId',
+                style: Theme.of(context).textTheme.titleMedium,
               ),
+              const SizedBox(height: 16),
+              ScoreView(pulses: _pulses, cursor: _cursor),
+              const SizedBox(height: 8),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                child: _isDone
+                    ? Text(
+                        '演奏完了！',
+                        key: const ValueKey('done'),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      )
+                    : Text(
+                        '$_cursor / ${_pulses.length} 打',
+                        key: const ValueKey('progress'),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+              ),
+              const SizedBox(height: 32),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  ElevatedButton(
+                    onPressed: _isDone ? null : _playShort,
+                    child: const Text('● 短'),
+                  ),
+                  const SizedBox(width: 16),
+                  ElevatedButton(
+                    onPressed: _isDone ? null : _playLong,
+                    child: const Text('━ 長'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              TextButton(onPressed: _reset, child: const Text('リセット')),
             ],
           ),
         ),
