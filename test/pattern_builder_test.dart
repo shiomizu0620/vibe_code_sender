@@ -18,10 +18,14 @@ void main() {
 
     test('F2受け入れ例: [short, long, short]', () {
       // 初期待機0 / 短150 / gap150 / 長450 / gap150 / 短150
-      expect(
-        buildPattern([Pulse.short, Pulse.long, Pulse.short]),
-        [0, 150, 150, 450, 150, 150],
-      );
+      expect(buildPattern([Pulse.short, Pulse.long, Pulse.short]), [
+        0,
+        150,
+        150,
+        450,
+        150,
+        150,
+      ]);
     });
 
     test('決定的: 同じ入力は常に同じ配列', () {
@@ -49,16 +53,31 @@ void main() {
 
   group('buildSignal（プリアンブル + データ音）', () {
     test('F2受け入れ例: [short, long, short] にプリアンブルが付く', () {
-      expect(
-        buildSignal([Pulse.short, Pulse.long, Pulse.short]),
-        [0, 700, 200, 700, 200, 150, 150, 450, 150, 150],
-      );
+      expect(buildSignal([Pulse.short, Pulse.long, Pulse.short]), [
+        0,
+        700,
+        200,
+        700,
+        200,
+        150,
+        150,
+        450,
+        150,
+        150,
+      ]);
     });
 
     test('プリアンブル直後にデータ音が続き、待ちが二重にならない', () {
       final signal = buildSignal([Pulse.short]);
       // [0, 700, 200, 700, 200, 150]
-      expect(signal, [0, preambleOnMs, preambleOffMs, preambleOnMs, preambleOffMs, shortMs]);
+      expect(signal, [
+        0,
+        preambleOnMs,
+        preambleOffMs,
+        preambleOnMs,
+        preambleOffMs,
+        shortMs,
+      ]);
     });
 
     test('プリアンブル部分は buildPreamble と一致する', () {
