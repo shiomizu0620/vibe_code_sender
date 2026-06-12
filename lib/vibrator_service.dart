@@ -6,7 +6,15 @@ import 'package:vibration/vibration.dart';
 /// （UI・encoder・pattern_builder）はプラットフォーム差を意識しない。
 /// コードは Android / iOS 共通で、プラットフォーム分岐は持たない。
 class VibratorService {
-  VibratorService({this.amplitude = 255});
+  VibratorService({this.amplitude = 255}) {
+    if (amplitude < 1 || amplitude > 255) {
+      throw ArgumentError.value(
+        amplitude,
+        'amplitude',
+        '振幅は 1〜255 の範囲で指定してください',
+      );
+    }
+  }
 
   /// ONパルスの振動の強さ（振幅）。1〜255。255 が最大。
   ///
