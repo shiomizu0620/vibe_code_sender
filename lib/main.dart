@@ -32,6 +32,8 @@ class SenderPage extends StatefulWidget {
   State<SenderPage> createState() => _SenderPageState();
 }
 
+enum _Phase { idle, preamble, playing, done }
+
 class _SenderPageState extends State<SenderPage> {
   final VibratorService _vibrator = VibratorService();
 
@@ -41,6 +43,7 @@ class _SenderPageState extends State<SenderPage> {
   static const int _demoId = 42;
   late List<Pulse> _pulses;
   int _cursor = 0;
+  _Phase _phase = _Phase.idle;
 
   @override
   void initState() {
@@ -55,6 +58,18 @@ class _SenderPageState extends State<SenderPage> {
     setState(() => _hasVibrator = available);
   }
 
+  Future<void> _startPlaying() async {
+    setState(() => _phase = _Phase.preamble);
+    _vibrator.play(buildPreamble()); // fire-and-forget（プリアンブルは待機不要）
+    await Future.delayed(
+      const Duration(
+        milliseconds: (preambleOnMs + preambleOffMs) * preambleRepeat,
+      ),
+    );
+    if (!mounted || _phase != _Phase.preamble) return;
+    setState(() => _phase = _Phase.playing);
+  }
+
   void _playShort() {
     _vibrator.play(<int>[0, shortMs]);
     _advance();
@@ -66,14 +81,18 @@ class _SenderPageState extends State<SenderPage> {
   }
 
   void _advance() {
-    if (_cursor < _pulses.length) {
-      setState(() => _cursor++);
-    }
+    if (_cursor >= _pulses.length) return;
+    final next = _cursor + 1;
+    setState(() {
+      _cursor = next;
+      if (next >= _pulses.length) _phase = _Phase.done;
+    });
   }
 
-  void _reset() => setState(() => _cursor = 0);
-
-  bool get _isDone => _cursor >= _pulses.length;
+  void _reset() => setState(() {
+    _cursor = 0;
+    _phase = _Phase.idle;
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -106,44 +125,93 @@ class _SenderPageState extends State<SenderPage> {
               const SizedBox(height: 16),
               ScoreView(pulses: _pulses, cursor: _cursor),
               const SizedBox(height: 8),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
-                child: _isDone
-                    ? Text(
-                        '演奏完了！',
-                        key: const ValueKey('done'),
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.primary,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      )
-                    : Text(
-                        '$_cursor / ${_pulses.length} 打',
-                        key: const ValueKey('progress'),
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
+              _StatusLine(
+                phase: _phase,
+                cursor: _cursor,
+                total: _pulses.length,
               ),
               const SizedBox(height: 32),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  ElevatedButton(
-                    onPressed: _isDone ? null : _playShort,
-                    child: const Text('● 短'),
-                  ),
-                  const SizedBox(width: 16),
-                  ElevatedButton(
-                    onPressed: _isDone ? null : _playLong,
-                    child: const Text('━ 長'),
-                  ),
-                ],
-              ),
+              _buildButtons(context),
               const SizedBox(height: 16),
               TextButton(onPressed: _reset, child: const Text('リセット')),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildButtons(BuildContext context) {
+    return switch (_phase) {
+      _Phase.idle => ElevatedButton.icon(
+        onPressed: _startPlaying,
+        icon: const Icon(Icons.play_arrow),
+        label: const Text('演奏開始'),
+      ),
+      _Phase.preamble => ElevatedButton.icon(
+        onPressed: null,
+        icon: const SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        label: const Text('プリアンブル送出中...'),
+      ),
+      _Phase.playing => Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          ElevatedButton(onPressed: _playShort, child: const Text('● 短')),
+          const SizedBox(width: 16),
+          ElevatedButton(onPressed: _playLong, child: const Text('━ 長')),
+        ],
+      ),
+      _Phase.done => Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          ElevatedButton(onPressed: null, child: const Text('● 短')),
+          const SizedBox(width: 16),
+          ElevatedButton(onPressed: null, child: const Text('━ 長')),
+        ],
+      ),
+    };
+  }
+}
+
+class _StatusLine extends StatelessWidget {
+  const _StatusLine({
+    required this.phase,
+    required this.cursor,
+    required this.total,
+  });
+
+  final _Phase phase;
+  final int cursor;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 200),
+      child: switch (phase) {
+        _Phase.idle => const Text(
+          'プリアンブルを送出してから演奏を始めます',
+          key: ValueKey('idle'),
+        ),
+        _Phase.preamble => const SizedBox(key: ValueKey('preamble')),
+        _Phase.playing => Text(
+          '$cursor / $total 打',
+          key: const ValueKey('playing'),
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        _Phase.done => Text(
+          '演奏完了！',
+          key: const ValueKey('done'),
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.primary,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      },
     );
   }
 }
