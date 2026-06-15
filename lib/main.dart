@@ -44,6 +44,7 @@ class _SenderPageState extends State<SenderPage> {
   late List<Pulse> _pulses;
   int _cursor = 0;
   _Phase _phase = _Phase.idle;
+  bool _vibrating = false; // 振動中は連打を無視する
 
   @override
   void initState() {
@@ -71,13 +72,25 @@ class _SenderPageState extends State<SenderPage> {
   }
 
   void _playShort() {
+    if (_vibrating) return;
+    _lockFor(shortMs);
     _vibrator.play(<int>[0, shortMs]);
     _advance();
   }
 
   void _playLong() {
+    if (_vibrating) return;
+    _lockFor(longMs);
     _vibrator.play(<int>[0, longMs]);
     _advance();
+  }
+
+  void _lockFor(int ms) {
+    setState(() => _vibrating = true);
+    Future.delayed(Duration(milliseconds: ms), () {
+      if (!mounted) return;
+      setState(() => _vibrating = false);
+    });
   }
 
   void _advance() {
@@ -92,6 +105,7 @@ class _SenderPageState extends State<SenderPage> {
   void _reset() => setState(() {
     _cursor = 0;
     _phase = _Phase.idle;
+    _vibrating = false;
   });
 
   @override
@@ -160,9 +174,15 @@ class _SenderPageState extends State<SenderPage> {
       _Phase.playing => Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          ElevatedButton(onPressed: _playShort, child: const Text('● 短')),
+          ElevatedButton(
+            onPressed: _vibrating ? null : _playShort,
+            child: const Text('● 短'),
+          ),
           const SizedBox(width: 16),
-          ElevatedButton(onPressed: _playLong, child: const Text('━ 長')),
+          ElevatedButton(
+            onPressed: _vibrating ? null : _playLong,
+            child: const Text('━ 長'),
+          ),
         ],
       ),
       _Phase.done => Row(
