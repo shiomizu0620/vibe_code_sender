@@ -80,7 +80,17 @@ class _SenderPageState extends State<SenderPage> {
       _cursor = 0;
       _phase = _Phase.auto;
     });
-    _vibrator.play(buildSignal(_pulses));
+
+    // フル信号の再生開始。完了待ちはしない（カーソルは下の delay で駆動）が、
+    // 例外で done に進むと不整合になるので、即 catchError を付けて未処理エラーを
+    // 防ぎつつ失敗を記録する（再生中のリセット/アンマウントで早期 return しても
+    // この Future にハンドラが付いているため未処理にならない）。
+    var playbackFailed = false;
+    final playback = _vibrator.play(buildSignal(_pulses)).catchError((
+      Object _,
+    ) {
+      playbackFailed = true;
+    });
 
     // プリアンブル送出ぶんを待ってからカーソルを進め始める。
     const preambleMs = (preambleOnMs + preambleOffMs) * preambleRepeat;
@@ -94,8 +104,11 @@ class _SenderPageState extends State<SenderPage> {
         await Future.delayed(const Duration(milliseconds: gapMs));
       }
     }
+
+    // 再生の最終結果を確定させてから状態遷移する（catchError 済みなので throw しない）。
+    await playback;
     if (!mounted || _phase != _Phase.auto) return;
-    setState(() => _phase = _Phase.done);
+    setState(() => _phase = playbackFailed ? _Phase.idle : _Phase.done);
   }
 
   void _playShort() {
