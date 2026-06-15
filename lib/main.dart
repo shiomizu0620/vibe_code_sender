@@ -45,6 +45,7 @@ class _SenderPageState extends State<SenderPage> {
   int _cursor = 0;
   _Phase _phase = _Phase.idle;
   bool _vibrating = false; // 振動中は連打を無視する
+  final Set<int> _mistakes = {};
 
   @override
   void initState() {
@@ -73,6 +74,7 @@ class _SenderPageState extends State<SenderPage> {
 
   void _playShort() {
     if (_vibrating) return;
+    if (_pulses[_cursor] != Pulse.short) _mistakes.add(_cursor);
     _lockFor(shortMs);
     _vibrator.play(<int>[0, shortMs]);
     _advance();
@@ -80,6 +82,7 @@ class _SenderPageState extends State<SenderPage> {
 
   void _playLong() {
     if (_vibrating) return;
+    if (_pulses[_cursor] != Pulse.long) _mistakes.add(_cursor);
     _lockFor(longMs);
     _vibrator.play(<int>[0, longMs]);
     _advance();
@@ -106,6 +109,7 @@ class _SenderPageState extends State<SenderPage> {
     _cursor = 0;
     _phase = _Phase.idle;
     _vibrating = false;
+    _mistakes.clear();
   });
 
   @override
@@ -137,7 +141,7 @@ class _SenderPageState extends State<SenderPage> {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 16),
-              ScoreView(pulses: _pulses, cursor: _cursor),
+              ScoreView(pulses: _pulses, cursor: _cursor, mistakes: _mistakes),
               const SizedBox(height: 8),
               _StatusLine(
                 phase: _phase,
