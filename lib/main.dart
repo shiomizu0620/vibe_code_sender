@@ -32,7 +32,7 @@ class SenderPage extends StatefulWidget {
   State<SenderPage> createState() => _SenderPageState();
 }
 
-enum _Phase { idle, preamble, playing, done }
+enum _Phase { idle, preamble, playing, auto, done }
 
 class _SenderPageState extends State<SenderPage> {
   final VibratorService _vibrator = VibratorService();
@@ -68,6 +68,34 @@ class _SenderPageState extends State<SenderPage> {
     );
     if (!mounted || _phase != _Phase.preamble) return;
     setState(() => _phase = _Phase.playing);
+  }
+
+  /// 自動演奏（F6）。プリアンブル込みのフル信号を機械精度で一括再生する。
+  ///
+  /// 振動本体は [buildSignal]（プリアンブル + 全 [_pulses]）を [VibratorService.play]
+  /// に一度渡すだけで完結する。以降の待機は楽譜カーソルを実再生に追従させる
+  /// ための視覚演出であり、振動のタイミングには影響しない。
+  Future<void> _playAuto() async {
+    setState(() {
+      _cursor = 0;
+      _phase = _Phase.auto;
+    });
+    _vibrator.play(buildSignal(_pulses));
+
+    // プリアンブル送出ぶんを待ってからカーソルを進め始める。
+    const preambleMs = (preambleOnMs + preambleOffMs) * preambleRepeat;
+    await Future.delayed(const Duration(milliseconds: preambleMs));
+    for (var i = 0; i < _pulses.length; i++) {
+      final onMs = _pulses[i] == Pulse.long ? longMs : shortMs;
+      await Future.delayed(Duration(milliseconds: onMs));
+      if (!mounted || _phase != _Phase.auto) return;
+      setState(() => _cursor = i + 1);
+      if (i < _pulses.length - 1) {
+        await Future.delayed(const Duration(milliseconds: gapMs));
+      }
+    }
+    if (!mounted || _phase != _Phase.auto) return;
+    setState(() => _phase = _Phase.done);
   }
 
   void _playShort() {
@@ -143,10 +171,21 @@ class _SenderPageState extends State<SenderPage> {
 
   Widget _buildButtons(BuildContext context) {
     return switch (_phase) {
-      _Phase.idle => ElevatedButton.icon(
-        onPressed: _startPlaying,
-        icon: const Icon(Icons.play_arrow),
-        label: const Text('演奏開始'),
+      _Phase.idle => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ElevatedButton.icon(
+            onPressed: _startPlaying,
+            icon: const Icon(Icons.play_arrow),
+            label: const Text('演奏開始'),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: _playAuto,
+            icon: const Icon(Icons.smart_toy),
+            label: const Text('自動演奏'),
+          ),
+        ],
       ),
       _Phase.preamble => ElevatedButton.icon(
         onPressed: null,
@@ -164,6 +203,15 @@ class _SenderPageState extends State<SenderPage> {
           const SizedBox(width: 16),
           ElevatedButton(onPressed: _playLong, child: const Text('━ 長')),
         ],
+      ),
+      _Phase.auto => ElevatedButton.icon(
+        onPressed: null,
+        icon: const SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        label: const Text('自動演奏中...'),
       ),
       _Phase.done => Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -201,6 +249,11 @@ class _StatusLine extends StatelessWidget {
         _Phase.playing => Text(
           '$cursor / $total 打',
           key: const ValueKey('playing'),
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        _Phase.auto => Text(
+          '自動演奏中  $cursor / $total 打',
+          key: const ValueKey('auto'),
           style: Theme.of(context).textTheme.bodySmall,
         ),
         _Phase.done => Text(
