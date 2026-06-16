@@ -90,7 +90,8 @@ class _SenderPageState extends State<SenderPage> {
 
   void _lockFor(int ms) {
     setState(() => _vibrating = true);
-    Future.delayed(Duration(milliseconds: ms), () {
+    // gapMs を足して最低限の間隔を強制 → 連続振動が繋がってlongに誤判定されるのを防ぐ
+    Future.delayed(Duration(milliseconds: ms + gapMs), () {
       if (!mounted) return;
       setState(() => _vibrating = false);
     });
@@ -147,6 +148,7 @@ class _SenderPageState extends State<SenderPage> {
                 phase: _phase,
                 cursor: _cursor,
                 total: _pulses.length,
+                mistakeCount: _mistakes.length,
               ),
               const SizedBox(height: 32),
               _buildButtons(context),
@@ -206,11 +208,13 @@ class _StatusLine extends StatelessWidget {
     required this.phase,
     required this.cursor,
     required this.total,
+    this.mistakeCount = 0,
   });
 
   final _Phase phase;
   final int cursor;
   final int total;
+  final int mistakeCount;
 
   @override
   Widget build(BuildContext context) {
@@ -228,10 +232,12 @@ class _StatusLine extends StatelessWidget {
           style: Theme.of(context).textTheme.bodySmall,
         ),
         _Phase.done => Text(
-          '演奏完了！',
+          mistakeCount == 0 ? '演奏完了！' : '演奏完了！ ミス $mistakeCount打',
           key: const ValueKey('done'),
           style: TextStyle(
-            color: Theme.of(context).colorScheme.primary,
+            color: mistakeCount == 0
+                ? Theme.of(context).colorScheme.primary
+                : Theme.of(context).colorScheme.error,
             fontWeight: FontWeight.bold,
           ),
         ),

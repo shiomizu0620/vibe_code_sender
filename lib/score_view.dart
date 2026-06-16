@@ -67,15 +67,22 @@ class _PulseChip extends StatelessWidget {
         ? theme.colorScheme.primary
         : theme.colorScheme.onSurface;
 
+    final isMistakeDone = isDone && isMistake;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 150),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: isCurrent
             ? theme.colorScheme.primaryContainer
-            : Colors.transparent,
+            : isMistakeDone
+                ? theme.colorScheme.errorContainer
+                : Colors.transparent,
         border: Border.all(
-          color: isCurrent ? theme.colorScheme.primary : Colors.transparent,
+          color: isCurrent
+              ? theme.colorScheme.primary
+              : isMistakeDone
+                  ? theme.colorScheme.error
+                  : Colors.transparent,
           width: 2,
         ),
         borderRadius: BorderRadius.circular(8),
