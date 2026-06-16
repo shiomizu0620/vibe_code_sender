@@ -75,14 +75,14 @@ class _PulseChip extends StatelessWidget {
         color: isCurrent
             ? theme.colorScheme.primaryContainer
             : isMistakeDone
-                ? theme.colorScheme.errorContainer
-                : Colors.transparent,
+            ? theme.colorScheme.errorContainer
+            : Colors.transparent,
         border: Border.all(
           color: isCurrent
               ? theme.colorScheme.primary
               : isMistakeDone
-                  ? theme.colorScheme.error
-                  : Colors.transparent,
+              ? theme.colorScheme.error
+              : Colors.transparent,
           width: 2,
         ),
         borderRadius: BorderRadius.circular(8),
