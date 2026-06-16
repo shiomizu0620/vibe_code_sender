@@ -5,11 +5,18 @@ import 'pattern_builder.dart';
 /// id → Pulse 列を記号で表示し、演奏位置をハイライトするウィジェット。
 ///
 /// [cursor] は「次に打つ」インデックス（0 = 未開始, pulses.length = 完了）。
+/// [mistakes] は誤打したインデックスの集合。該当チップを赤で表示する。
 class ScoreView extends StatelessWidget {
-  const ScoreView({super.key, required this.pulses, required this.cursor});
+  const ScoreView({
+    super.key,
+    required this.pulses,
+    required this.cursor,
+    this.mistakes = const {},
+  });
 
   final List<Pulse> pulses;
   final int cursor;
+  final Set<int> mistakes;
 
   @override
   Widget build(BuildContext context) {
@@ -21,7 +28,12 @@ class ScoreView extends StatelessWidget {
       alignment: WrapAlignment.center,
       children: [
         for (var i = 0; i < pulses.length; i++)
-          _PulseChip(pulse: pulses[i], index: i, cursor: cursor),
+          _PulseChip(
+            pulse: pulses[i],
+            index: i,
+            cursor: cursor,
+            isMistake: mistakes.contains(i),
+          ),
       ],
     );
   }
@@ -32,11 +44,13 @@ class _PulseChip extends StatelessWidget {
     required this.pulse,
     required this.index,
     required this.cursor,
+    required this.isMistake,
   });
 
   final Pulse pulse;
   final int index;
   final int cursor;
+  final bool isMistake;
 
   @override
   Widget build(BuildContext context) {
@@ -46,20 +60,29 @@ class _PulseChip extends StatelessWidget {
 
     final symbol = pulse == Pulse.short ? '●' : '━';
     final color = isDone
-        ? theme.colorScheme.onSurface.withValues(alpha: 0.3)
+        ? isMistake
+              ? theme.colorScheme.error
+              : theme.colorScheme.onSurface.withValues(alpha: 0.3)
         : isCurrent
         ? theme.colorScheme.primary
         : theme.colorScheme.onSurface;
 
+    final isMistakeDone = isDone && isMistake;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 150),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: isCurrent
             ? theme.colorScheme.primaryContainer
+            : isMistakeDone
+            ? theme.colorScheme.errorContainer
             : Colors.transparent,
         border: Border.all(
-          color: isCurrent ? theme.colorScheme.primary : Colors.transparent,
+          color: isCurrent
+              ? theme.colorScheme.primary
+              : isMistakeDone
+              ? theme.colorScheme.error
+              : Colors.transparent,
           width: 2,
         ),
         borderRadius: BorderRadius.circular(8),
