@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'constants.dart';
 import 'encoder.dart';
@@ -36,28 +37,63 @@ enum _Phase { idle, preamble, playing, auto, done }
 
 class _SenderPageState extends State<SenderPage> {
   final VibratorService _vibrator = VibratorService();
+  final TextEditingController _idController = TextEditingController(text: '42');
 
   bool? _hasVibrator;
 
-  // デモ用 id。F7 で入力欄に差し替える。
-  static const int _demoId = 42;
+  int _currentId = 42;
+  String? _idError;
   late List<Pulse> _pulses;
   int _cursor = 0;
   _Phase _phase = _Phase.idle;
-  bool _vibrating = false; // 振動中は連打を無視する
+  bool _vibrating = false;
   final Set<int> _mistakes = {};
+
+  bool get _isActive =>
+      _phase == _Phase.preamble ||
+      _phase == _Phase.playing ||
+      _phase == _Phase.auto;
 
   @override
   void initState() {
     super.initState();
-    _pulses = encode(_demoId);
+    _pulses = encode(_currentId);
     _checkVibrator();
+  }
+
+  @override
+  void dispose() {
+    _idController.dispose();
+    super.dispose();
   }
 
   Future<void> _checkVibrator() async {
     final available = await _vibrator.hasVibrator();
     if (!mounted) return;
     setState(() => _hasVibrator = available);
+  }
+
+  void _onIdChanged(String value) {
+    final n = int.tryParse(value);
+    if (n == null || n < 0 || n > 255) {
+      setState(() {
+        _idError = '0 〜 255 で入力してください';
+        _phase = _Phase.idle;
+        _cursor = 0;
+        _vibrating = false;
+        _mistakes.clear();
+      });
+      return;
+    }
+    setState(() {
+      _idError = null;
+      _currentId = n;
+      _pulses = encode(n);
+      _cursor = 0;
+      _phase = _Phase.idle;
+      _vibrating = false;
+      _mistakes.clear();
+    });
   }
 
   Future<void> _startPlaying() async {
@@ -83,10 +119,6 @@ class _SenderPageState extends State<SenderPage> {
       _phase = _Phase.auto;
     });
 
-    // フル信号の再生開始。完了待ちはしない（カーソルは下の delay で駆動）が、
-    // 例外で done に進むと不整合になるので、即 catchError を付けて未処理エラーを
-    // 防ぎつつ失敗を記録する（再生中のリセット/アンマウントで早期 return しても
-    // この Future にハンドラが付いているため未処理にならない）。
     var playbackFailed = false;
     final playback = _vibrator.play(buildSignal(_pulses)).catchError((
       Object _,
@@ -94,7 +126,6 @@ class _SenderPageState extends State<SenderPage> {
       playbackFailed = true;
     });
 
-    // プリアンブル送出ぶんを待ってからカーソルを進め始める。
     const preambleMs = (preambleOnMs + preambleOffMs) * preambleRepeat;
     await Future.delayed(const Duration(milliseconds: preambleMs));
     for (var i = 0; i < _pulses.length; i++) {
@@ -107,7 +138,6 @@ class _SenderPageState extends State<SenderPage> {
       }
     }
 
-    // 再生の最終結果を確定させてから状態遷移する（catchError 済みなので throw しない）。
     await playback;
     if (!mounted || _phase != _Phase.auto) return;
     setState(() => _phase = playbackFailed ? _Phase.idle : _Phase.done);
@@ -131,7 +161,6 @@ class _SenderPageState extends State<SenderPage> {
 
   void _lockFor(int ms) {
     setState(() => _vibrating = true);
-    // gapMs を足して最低限の間隔を強制 → 連続振動が繋がってlongに誤判定されるのを防ぐ
     Future.delayed(Duration(milliseconds: ms + gapMs), () {
       if (!mounted) return;
       setState(() => _vibrating = false);
@@ -178,9 +207,21 @@ class _SenderPageState extends State<SenderPage> {
                     style: TextStyle(color: Colors.redAccent),
                   ),
                 ),
-              Text(
-                'id: $_demoId',
-                style: Theme.of(context).textTheme.titleMedium,
+              SizedBox(
+                width: 140,
+                child: TextField(
+                  controller: _idController,
+                  enabled: !_isActive,
+                  keyboardType: TextInputType.number,
+                  textAlign: TextAlign.center,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: InputDecoration(
+                    labelText: 'id (0〜255)',
+                    errorText: _idError,
+                    border: const OutlineInputBorder(),
+                  ),
+                  onChanged: _onIdChanged,
+                ),
               ),
               const SizedBox(height: 16),
               ScoreView(pulses: _pulses, cursor: _cursor, mistakes: _mistakes),
@@ -204,22 +245,25 @@ class _SenderPageState extends State<SenderPage> {
 
   Widget _buildButtons(BuildContext context) {
     return switch (_phase) {
-      _Phase.idle => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ElevatedButton.icon(
-            onPressed: _startPlaying,
-            icon: const Icon(Icons.play_arrow),
-            label: const Text('演奏開始'),
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: _playAuto,
-            icon: const Icon(Icons.smart_toy),
-            label: const Text('自動演奏'),
-          ),
-        ],
-      ),
+      _Phase.idle =>
+        _idError != null
+            ? const SizedBox.shrink()
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: _startPlaying,
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text('演奏開始'),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _playAuto,
+                    icon: const Icon(Icons.smart_toy),
+                    label: const Text('自動演奏'),
+                  ),
+                ],
+              ),
       _Phase.preamble => ElevatedButton.icon(
         onPressed: null,
         icon: const SizedBox(
