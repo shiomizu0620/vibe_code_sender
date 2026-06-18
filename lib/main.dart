@@ -76,7 +76,13 @@ class _SenderPageState extends State<SenderPage> {
   void _onIdChanged(String value) {
     final n = int.tryParse(value);
     if (n == null || n < 0 || n > 255) {
-      setState(() => _idError = '0 〜 255 で入力してください');
+      setState(() {
+        _idError = '0 〜 255 で入力してください';
+        _phase = _Phase.idle;
+        _cursor = 0;
+        _vibrating = false;
+        _mistakes.clear();
+      });
       return;
     }
     setState(() {
