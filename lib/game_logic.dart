@@ -10,8 +10,8 @@ import 'vibrator_service.dart';
 /// 判定窓（ミリ秒）。hitTime との差の絶対値で判定する。
 ///
 /// 値は調整しやすいよう定数化（issue: Perfect±40ms / Good±90ms）。
-const int perfectWindowMs = 100;
-const int goodWindowMs = 200;
+const int perfectWindowMs = 150;
+const int goodWindowMs = 400;
 
 /// 打ち方の種類。tap=短押し（150ms）、hold=長押し（450ms/プリアンブル700ms）。
 enum NoteType { tap, hold }
