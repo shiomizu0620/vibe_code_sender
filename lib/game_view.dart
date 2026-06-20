@@ -308,30 +308,30 @@ class _GamePainter extends CustomPainter {
     _drawJudgmentEffects(canvas, center, ringR);
   }
 
-  // Continuous ring with 8 blurry glow blobs at each possible note position.
-  // The ring line itself is unbroken; only the glow intensity varies per slot.
+  // 8 LED-style button segments like the physical maimai ring.
+  // StrokeCap.butt gives flat ends (panels, not dots). All 8 always lit;
+  // the segment heading to a note flares brighter as it approaches.
   void _drawRing(Canvas canvas, Offset center, double r) {
     final rect = Rect.fromCircle(center: center, radius: r);
     final slotProgress = _computeSlotProgress();
-    // arcHalf = half slot width (22.5°); heavy blur blends edges into the
-    // continuous ring so there is no dotted / segmented appearance.
-    const arcHalf = pi / 8;
+    // 78 % of 45° = 35.1° arc per segment, ~9.9° dark gap between them
+    const arcHalf = pi / 8 * 0.78;
 
-    // Ambient full-circle base glow
+    // Very faint structural circle so the ring shape reads even at rest
     canvas.drawCircle(
       center,
       r,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 24
-        ..color = _neonCyan.withAlpha(10)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14),
+        ..strokeWidth = 1
+        ..color = _neonCyan.withAlpha(22),
     );
 
-    // 8 blurry blobs — always faintly mark each position, flare on approach
     for (var k = 0; k < 8; k++) {
       final ca = 2 * pi * k / 8;
       final p = slotProgress[k];
+
+      // Blurry glow halo behind the segment
       canvas.drawArc(
         rect,
         ca - arcHalf,
@@ -339,21 +339,25 @@ class _GamePainter extends CustomPainter {
         false,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 28
-          ..color = _neonCyan.withAlpha((22 + p * 110).toInt())
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
+          ..strokeWidth = 24
+          ..color = _neonCyan.withAlpha((35 + p * 120).toInt())
+          ..strokeCap = StrokeCap.butt
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
+      );
+
+      // Main segment — thick, flat-ended, always clearly visible
+      canvas.drawArc(
+        rect,
+        ca - arcHalf,
+        arcHalf * 2,
+        false,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 9
+          ..color = _neonCyan.withAlpha((95 + p * 160).toInt().clamp(0, 255))
+          ..strokeCap = StrokeCap.butt,
       );
     }
-
-    // Crisp continuous ring line drawn last so it stays sharp on top
-    canvas.drawCircle(
-      center,
-      r,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5
-        ..color = _neonCyan.withAlpha(65),
-    );
 
     // Inner guide ring
     canvas.drawCircle(
