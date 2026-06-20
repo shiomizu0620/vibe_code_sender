@@ -15,14 +15,22 @@ const String _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final configured = _supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty;
-  if (configured) {
-    // 我々が扱うのは anon key（JWT）。publishableKey は新形式キー用のため、
-    // anon key に対応する anonKey 引数を使う（将来 anon key 廃止時に見直し）。
-    // ignore: deprecated_member_use
-    await Supabase.initialize(url: _supabaseUrl, anonKey: _supabaseAnonKey);
+  var ready = false;
+  if (_supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty) {
+    try {
+      // 我々が扱うのは anon key（JWT）。publishableKey は新形式キー用のため、
+      // anon key に対応する anonKey 引数を使う（将来 anon key 廃止時に見直し）。
+      // ignore: deprecated_member_use
+      await Supabase.initialize(url: _supabaseUrl, anonKey: _supabaseAnonKey);
+      ready = true;
+    } catch (e, st) {
+      // 起動時の外部初期化は失敗し得る（ネットワーク不通・鍵不正など）。
+      // ここで握りつぶさずに throw すると runApp 前なのでアプリが起動しない。
+      // 未設定扱いにしてフォールバック画面で起動を継続する。
+      debugPrint('Supabase 初期化に失敗しました: $e\n$st');
+    }
   }
-  runApp(VibeCodeApp(configured: configured));
+  runApp(VibeCodeApp(configured: ready));
 }
 
 class VibeCodeApp extends StatelessWidget {
@@ -43,7 +51,7 @@ class VibeCodeApp extends StatelessWidget {
   }
 }
 
-/// Supabase 未設定時の案内画面。
+/// Supabase が未設定、または初期化に失敗したときの案内画面。
 class _ConfigNeededPage extends StatelessWidget {
   const _ConfigNeededPage();
 
@@ -55,9 +63,10 @@ class _ConfigNeededPage extends StatelessWidget {
         child: Padding(
           padding: EdgeInsets.all(24),
           child: Text(
-            'Supabase が未設定です。\n'
+            'Supabase に接続できません。\n'
             '--dart-define-from-file=env.json で\n'
-            'SUPABASE_URL / SUPABASE_ANON_KEY を渡してください。',
+            'SUPABASE_URL / SUPABASE_ANON_KEY を渡し、\n'
+            'ネットワークと鍵を確認してください。',
             textAlign: TextAlign.center,
           ),
         ),
