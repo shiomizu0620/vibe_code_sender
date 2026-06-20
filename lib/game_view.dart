@@ -63,6 +63,8 @@ class _GameViewState extends State<GameView>
   int _combo = 0;
   // noteIndex → _displayMs when tapped; drives the hold-drain animation
   final Map<int, int> _holdStartMs = {};
+  Map<int, Judgement>? _lastResults; // snapshot for result screen
+  int _lastNoteCount = 0;
   List<UrlEntry> _urls = const [];
   UrlEntry? _selectedEntry;
   bool _loadingUrls = false;
@@ -142,6 +144,8 @@ class _GameViewState extends State<GameView>
       if (ms >= lastExitMs) {
         _ticker.stop();
         setState(() {
+          _lastResults = Map.of(_gc.results);
+          _lastNoteCount = _gc.notes.length;
           _started = false;
           _holdStartMs.clear();
         });
@@ -156,6 +160,8 @@ class _GameViewState extends State<GameView>
     setState(() {
       _started = true;
       _combo = 0;
+      _lastResults = null;
+      _lastNoteCount = 0;
       _effects.clear();
       _holdStartMs.clear();
     });
@@ -168,6 +174,8 @@ class _GameViewState extends State<GameView>
       _started = false;
       _displayMs = 0;
       _combo = 0;
+      _lastResults = null;
+      _lastNoteCount = 0;
       _effects.clear();
       _holdStartMs.clear();
     });
@@ -226,8 +234,15 @@ class _GameViewState extends State<GameView>
                   ),
                 ),
               ),
-              // Combo HUD — top-center
-              if (_combo >= 1)
+              // Score HUD — top-left during play
+              if (_started)
+                Positioned(
+                  top: 6,
+                  left: 10,
+                  child: IgnorePointer(child: _buildScoreHud()),
+                ),
+              // Combo HUD — top-center during play
+              if (_started && _combo >= 1)
                 Positioned(
                   top: 4,
                   left: 0,
@@ -236,8 +251,11 @@ class _GameViewState extends State<GameView>
                     child: Center(child: _buildComboDisplay()),
                   ),
                 ),
-              // Title — top-right (only when not playing, so it doesn't distract)
-              if (!_started)
+              // Stop button — top-right during play
+              if (_started)
+                Positioned(top: 8, right: 8, child: _buildPlayButton()),
+              // Pre-game UI (hidden when result is showing)
+              if (!_started && _lastResults == null) ...[
                 const Positioned(
                   top: 8,
                   right: 12,
@@ -253,11 +271,8 @@ class _GameViewState extends State<GameView>
                     ),
                   ),
                 ),
-              // Back button — top-left, only when not playing
-              if (!_started && widget.onNavigateBack != null)
-                Positioned(top: 4, left: 4, child: _buildBackButton()),
-              // URL selector — fills space between header and play button
-              if (!_started)
+                if (widget.onNavigateBack != null)
+                  Positioned(top: 4, left: 4, child: _buildBackButton()),
                 Positioned(
                   top: 30,
                   left: 16,
@@ -265,15 +280,16 @@ class _GameViewState extends State<GameView>
                   bottom: 50,
                   child: _buildUrlSelector(),
                 ),
-              if (!_started)
                 Positioned(
                   bottom: 10,
                   left: 0,
                   right: 0,
                   child: Center(child: _buildPlayButton()),
-                )
-              else
-                Positioned(top: 8, right: 8, child: _buildPlayButton()),
+                ),
+              ],
+              // Result overlay — after natural game end
+              if (!_started && _lastResults != null)
+                Positioned.fill(child: _buildResultOverlay()),
             ],
           ),
         ),
@@ -416,6 +432,167 @@ class _GameViewState extends State<GameView>
           ),
         ],
       ),
+    );
+  }
+
+  // ── Score / rank helpers ─────────────────────────────────────────────
+
+  int _calcScore() {
+    final results = _lastResults ?? _gc.results;
+    final total = _lastNoteCount > 0 ? _lastNoteCount : _gc.notes.length;
+    if (total == 0) return 0;
+    final base = 1000000.0 / total;
+    var score = 0.0;
+    for (final j in results.values) {
+      if (j == Judgement.perfect) {
+        score += base;
+      } else if (j == Judgement.good) {
+        score += base * 0.5;
+      }
+    }
+    return score.round();
+  }
+
+  String _rank(int score) {
+    if (score >= 950000) return 'S';
+    if (score >= 900000) return 'A';
+    if (score >= 800000) return 'B';
+    if (score >= 700000) return 'C';
+    return 'F';
+  }
+
+  Color _rankColor(String rank) {
+    switch (rank) {
+      case 'S':
+        return _neonGold;
+      case 'A':
+        return _neonCyan;
+      case 'B':
+        return _neonPurple;
+      case 'C':
+        return _neonAmber;
+      default:
+        return _mutedColor;
+    }
+  }
+
+  // ── HUD: score during play ────────────────────────────────────────────
+
+  Widget _buildScoreHud() {
+    final score = _calcScore();
+    return Text(
+      score.toString().padLeft(7, '0'),
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 15,
+        fontWeight: FontWeight.bold,
+        letterSpacing: 2,
+      ),
+    );
+  }
+
+  // ── Result overlay ────────────────────────────────────────────────────
+
+  Widget _buildResultOverlay() {
+    final results = _lastResults!;
+    final total = _lastNoteCount;
+    final perfects = results.values.where((j) => j == Judgement.perfect).length;
+    final goods = results.values.where((j) => j == Judgement.good).length;
+    final misses = total - perfects - goods;
+    final score = _calcScore();
+    final rank = _rank(score);
+    final rc = _rankColor(rank);
+
+    return Container(
+      color: _bg.withAlpha(215),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'R E S U L T',
+              style: TextStyle(
+                color: _mutedColor,
+                fontSize: 10,
+                letterSpacing: 6,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              rank,
+              style: TextStyle(
+                color: rc,
+                fontSize: 80,
+                fontWeight: FontWeight.w900,
+                height: 1,
+                shadows: [Shadow(color: rc.withAlpha(130), blurRadius: 24)],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              score.toString().padLeft(7, '0'),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 4,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildJudgeCount('PERFECT', perfects, _neonGold),
+                const SizedBox(width: 28),
+                _buildJudgeCount('GOOD', goods, _neonCyan),
+                const SizedBox(width: 28),
+                _buildJudgeCount('MISS', misses, _mutedColor),
+              ],
+            ),
+            const SizedBox(height: 32),
+            ElevatedButton.icon(
+              onPressed: _stop,
+              icon: const Icon(Icons.replay, size: 16),
+              label: const Text('もう一度', style: TextStyle(fontSize: 13)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _neonPurple.withAlpha(200),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 10,
+                ),
+                elevation: 0,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildJudgeCount(String label, int count, Color color) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '$count',
+          style: TextStyle(
+            color: color,
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            color: color.withAlpha(180),
+            fontSize: 8,
+            letterSpacing: 2,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 
