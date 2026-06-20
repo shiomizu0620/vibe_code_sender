@@ -33,6 +33,11 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Secrets (Supabase keys 等。コミット禁止。env.example.json をテンプレに使う)
+env.json
+.env
+*.env
+
 # Symbolication related
 app.*.symbols
 
