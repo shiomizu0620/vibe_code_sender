@@ -250,6 +250,15 @@ class GameController extends ChangeNotifier {
     return judgement;
   }
 
+  /// プリアンブルノーツをカーソルスキップ（外部で振動済みのため発火しない）。
+  void skipPreamble() {
+    while (_cursor < _notes.length && _notes[_cursor].isPreamble) {
+      _results[_cursor] = Judgement.perfect;
+      _cursor++;
+    }
+    notifyListeners();
+  }
+
   /// 固定長の振動を実時間タイマで一発出す（描画と独立）。
   void _fire(Note note) {
     _vibrator.play(<int>[0, note.durationMs]);

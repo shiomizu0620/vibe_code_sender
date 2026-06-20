@@ -64,7 +64,7 @@ class _GameViewState extends State<GameView>
   // noteIndex → _displayMs when tapped; drives the hold-drain animation
   final Map<int, int> _holdStartMs = {};
   Map<int, Judgement>? _lastResults; // snapshot for result screen
-  int _lastNoteCount = 0;
+  int? _countdownRemaining; // 3/2/1/0="GO!" during countdown, null otherwise
   List<UrlEntry> _urls = const [];
   UrlEntry? _selectedEntry;
   bool _loadingUrls = false;
@@ -145,7 +145,6 @@ class _GameViewState extends State<GameView>
         _ticker.stop();
         setState(() {
           _lastResults = Map.of(_gc.results);
-          _lastNoteCount = _gc.notes.length;
           _started = false;
           _holdStartMs.clear();
         });
@@ -153,18 +152,45 @@ class _GameViewState extends State<GameView>
     }
   }
 
-  void _start() {
+  void _startPressed() {
     _gc.reset();
     _gc.start();
+    _gc.skipPreamble();
     _ticker.start();
+    // Fire preamble vibrations manually during countdown
+    _vibrator.play(<int>[0, preambleOnMs]);
+    Future.delayed(
+      const Duration(milliseconds: preambleOnMs + preambleOffMs),
+      () {
+        if (mounted) _vibrator.play(<int>[0, preambleOnMs]);
+      },
+    );
     setState(() {
-      _started = true;
+      _started = false; // interactive after countdown
       _combo = 0;
       _lastResults = null;
-      _lastNoteCount = 0;
       _effects.clear();
       _holdStartMs.clear();
+      _countdownRemaining = 3;
     });
+    _tickCountdown();
+  }
+
+  Future<void> _tickCountdown() async {
+    for (var i = 3; i >= 0; i--) {
+      if (!mounted || _countdownRemaining == null) return;
+      if (i < 3) setState(() => _countdownRemaining = i);
+      if (i == 0) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (!mounted || _countdownRemaining == null) return;
+        setState(() {
+          _countdownRemaining = null;
+          _started = true;
+        });
+        return;
+      }
+      await Future.delayed(const Duration(seconds: 1));
+    }
   }
 
   void _stop() {
@@ -174,8 +200,8 @@ class _GameViewState extends State<GameView>
       _started = false;
       _displayMs = 0;
       _combo = 0;
+      _countdownRemaining = null;
       _lastResults = null;
-      _lastNoteCount = 0;
       _effects.clear();
       _holdStartMs.clear();
     });
@@ -225,7 +251,10 @@ class _GameViewState extends State<GameView>
               Positioned.fill(
                 child: CustomPaint(
                   painter: _GamePainter(
-                    notes: _started ? _gc.notes : const [],
+                    // Show non-preamble notes during countdown preview and play
+                    notes: (_started || _countdownRemaining != null)
+                        ? _gc.notes.where((n) => !n.isPreamble).toList()
+                        : const [],
                     results: _gc.results,
                     effects: List.unmodifiable(_effects),
                     holdStartMs: Map.unmodifiable(_holdStartMs),
@@ -234,6 +263,9 @@ class _GameViewState extends State<GameView>
                   ),
                 ),
               ),
+              // Countdown overlay
+              if (_countdownRemaining != null)
+                Positioned.fill(child: IgnorePointer(child: _buildCountdown())),
               // Score HUD — top-left during play
               if (_started)
                 Positioned(
@@ -251,11 +283,13 @@ class _GameViewState extends State<GameView>
                     child: Center(child: _buildComboDisplay()),
                   ),
                 ),
-              // Stop button — top-right during play
-              if (_started)
+              // Stop/cancel button — top-right during countdown or play
+              if (_started || _countdownRemaining != null)
                 Positioned(top: 8, right: 8, child: _buildPlayButton()),
-              // Pre-game UI (hidden when result is showing)
-              if (!_started && _lastResults == null) ...[
+              // Pre-game UI (hidden during countdown or result)
+              if (!_started &&
+                  _countdownRemaining == null &&
+                  _lastResults == null) ...[
                 const Positioned(
                   top: 8,
                   right: 12,
@@ -439,18 +473,21 @@ class _GameViewState extends State<GameView>
 
   int _calcScore() {
     final results = _lastResults ?? _gc.results;
-    final total = _lastNoteCount > 0 ? _lastNoteCount : _gc.notes.length;
-    if (total == 0) return 0;
-    final base = 1000000.0 / total;
+    final notes = _gc.notes;
+    var total = 0;
     var score = 0.0;
-    for (final j in results.values) {
+    for (var i = 0; i < notes.length; i++) {
+      if (notes[i].isPreamble) continue;
+      total++;
+      final j = results[i];
       if (j == Judgement.perfect) {
-        score += base;
+        score += 1.0;
       } else if (j == Judgement.good) {
-        score += base * 0.5;
+        score += 0.5;
       }
     }
-    return score.round();
+    if (total == 0) return 0;
+    return (score / total * 1000000).round();
   }
 
   String _rank(int score) {
@@ -495,9 +532,17 @@ class _GameViewState extends State<GameView>
 
   Widget _buildResultOverlay() {
     final results = _lastResults!;
-    final total = _lastNoteCount;
-    final perfects = results.values.where((j) => j == Judgement.perfect).length;
-    final goods = results.values.where((j) => j == Judgement.good).length;
+    final notes = _gc.notes;
+    var perfects = 0, goods = 0, total = 0;
+    for (var i = 0; i < notes.length; i++) {
+      if (notes[i].isPreamble) continue;
+      total++;
+      if (results[i] == Judgement.perfect) {
+        perfects++;
+      } else if (results[i] == Judgement.good) {
+        goods++;
+      }
+    }
     final misses = total - perfects - goods;
     final score = _calcScore();
     final rank = _rank(score);
@@ -596,6 +641,28 @@ class _GameViewState extends State<GameView>
     );
   }
 
+  Widget _buildCountdown() {
+    final c = _countdownRemaining!;
+    final isGo = c == 0;
+    final text = isGo ? 'GO!' : '$c';
+    final color = isGo ? _neonGold : _neonCyan;
+    return Container(
+      color: _bg.withAlpha(160),
+      child: Center(
+        child: Text(
+          text,
+          style: TextStyle(
+            color: color,
+            fontSize: 100,
+            fontWeight: FontWeight.w900,
+            height: 1,
+            shadows: [Shadow(color: color.withAlpha(150), blurRadius: 32)],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildBackButton() {
     return GestureDetector(
       onTap: widget.onNavigateBack,
@@ -657,13 +724,14 @@ class _GameViewState extends State<GameView>
   }
 
   Widget _buildPlayButton() {
-    if (_started) {
+    if (_started || _countdownRemaining != null) {
+      final label = _countdownRemaining != null ? 'キャンセル' : '停止';
       return OutlinedButton.icon(
         onPressed: _stop,
         icon: const Icon(Icons.stop, color: _neonCyan, size: 14),
-        label: const Text(
-          '停止',
-          style: TextStyle(color: _neonCyan, fontSize: 11),
+        label: Text(
+          label,
+          style: const TextStyle(color: _neonCyan, fontSize: 11),
         ),
         style: OutlinedButton.styleFrom(
           side: const BorderSide(color: _neonCyan),
@@ -674,7 +742,7 @@ class _GameViewState extends State<GameView>
       );
     }
     return ElevatedButton.icon(
-      onPressed: _selectedEntry == null ? null : _start,
+      onPressed: _selectedEntry == null ? null : _startPressed,
       icon: const Icon(Icons.play_arrow, size: 16),
       label: const Text('演奏開始', style: TextStyle(fontSize: 13)),
       style: ElevatedButton.styleFrom(
