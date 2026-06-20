@@ -537,6 +537,13 @@ class _SenderPageState extends State<SenderPage> {
     _checkVibrator();
   }
 
+  @override
+  void dispose() {
+    // 自動演奏中に戻る/画面遷移しても振動が鳴り続けないよう、離脱時に打ち切る。
+    _vibrator.cancel();
+    super.dispose();
+  }
+
   Future<void> _checkVibrator() async {
     final available = await _vibrator.hasVibrator();
     if (!mounted) return;
@@ -635,12 +642,17 @@ class _SenderPageState extends State<SenderPage> {
     });
   }
 
-  void _reset() => setState(() {
-    _cursor = 0;
-    _phase = _Phase.idle;
-    _vibrating = false;
-    _mistakes.clear();
-  });
+  void _reset() {
+    // 自動演奏は端末側で長いパターンを再生し続けるため、状態リセットだけでは
+    // 振動が止まらない。実際の振動を打ち切ってから UI を初期化する。
+    _vibrator.cancel();
+    setState(() {
+      _cursor = 0;
+      _phase = _Phase.idle;
+      _vibrating = false;
+      _mistakes.clear();
+    });
+  }
 
   /// 送信モードを切り替え、対応する [_pulses] を再計算して演奏状態をリセットする。
   ///
