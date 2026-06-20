@@ -605,7 +605,10 @@ class _UrlListPageState extends State<UrlListPage> {
                     text: '読み込みに失敗しました。\n通信状況を確認してください。',
                   );
                 }
-                final entries = snapshot.data ?? const [];
+                // 一覧は若い番号が上に来るよう id 昇順で表示する。並び順はこの画面
+                // だけの都合なので、共有の fetchUrls()（新しい順）は変えずここで整える。
+                final entries = [...?snapshot.data]
+                  ..sort((a, b) => a.id.compareTo(b.id));
                 if (entries.isEmpty) {
                   return const _MessageState(
                     icon: Icons.link_off,

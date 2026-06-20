@@ -43,12 +43,12 @@ class SupabaseService {
   /// id の上限（8bit）。
   static const int _idMax = 255;
 
-  /// 登録済み URL を id の昇順（若い番号が先）で取得する。
+  /// 登録済み URL を新しい順で取得する。
   Future<List<UrlEntry>> fetchUrls() async {
     final rows = await _client
         .from(_table)
         .select()
-        .order('id', ascending: true);
+        .order('created_at', ascending: false);
     return rows.map(UrlEntry.fromMap).toList();
   }
 
