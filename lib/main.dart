@@ -237,9 +237,12 @@ class _UrlListPageState extends State<UrlListPage> {
   }
 }
 
-enum _Phase { idle, preamble, playing, done }
+enum _Phase { idle, preamble, playing, auto, done }
 
-/// 演奏画面。与えられた [id] を楽譜化し、手動で演奏する（F4/F5）。
+/// 演奏画面。選択した URL の [id] を楽譜化し、手動（F5）/ 自動（F6）で演奏する。
+///
+/// id は URL一覧での選択で確定するため、ここでは編集せず表示のみ（F7 の
+/// id入力欄は一覧選択に置き換わった）。
 class SenderPage extends StatefulWidget {
   const SenderPage({super.key, required this.id, this.url});
 
@@ -286,6 +289,45 @@ class _SenderPageState extends State<SenderPage> {
     );
     if (!mounted || _phase != _Phase.preamble) return;
     setState(() => _phase = _Phase.playing);
+  }
+
+  /// 自動演奏（F6）。プリアンブル込みのフル信号を機械精度で一括再生する。
+  ///
+  /// 振動本体は [buildSignal]（プリアンブル + 全 [_pulses]）を [VibratorService.play]
+  /// に一度渡すだけで完結する。以降の待機は楽譜カーソルを実再生に追従させる
+  /// ための視覚演出であり、振動のタイミングには影響しない。
+  Future<void> _playAuto() async {
+    setState(() {
+      _cursor = 0;
+      _phase = _Phase.auto;
+    });
+
+    // フル信号の再生開始。完了待ちはしない（カーソルは下の delay で駆動）が、
+    // 例外で done に進むと不整合になるので、即 catchError を付けて未処理エラーを
+    // 防ぎつつ失敗を記録する（再生中のリセット/アンマウントで早期 return しても
+    // この Future にハンドラが付いているため未処理にならない）。
+    var playbackFailed = false;
+    final playback = _vibrator.play(buildSignal(_pulses)).catchError((
+      Object _,
+    ) {
+      playbackFailed = true;
+    });
+
+    const preambleMs = (preambleOnMs + preambleOffMs) * preambleRepeat;
+    await Future.delayed(const Duration(milliseconds: preambleMs));
+    for (var i = 0; i < _pulses.length; i++) {
+      final onMs = _pulses[i] == Pulse.long ? longMs : shortMs;
+      await Future.delayed(Duration(milliseconds: onMs));
+      if (!mounted || _phase != _Phase.auto) return;
+      setState(() => _cursor = i + 1);
+      if (i < _pulses.length - 1) {
+        await Future.delayed(const Duration(milliseconds: gapMs));
+      }
+    }
+
+    await playback;
+    if (!mounted || _phase != _Phase.auto) return;
+    setState(() => _phase = playbackFailed ? _Phase.idle : _Phase.done);
   }
 
   void _playShort() {
@@ -389,10 +431,21 @@ class _SenderPageState extends State<SenderPage> {
 
   Widget _buildButtons(BuildContext context) {
     return switch (_phase) {
-      _Phase.idle => ElevatedButton.icon(
-        onPressed: _startPlaying,
-        icon: const Icon(Icons.play_arrow),
-        label: const Text('演奏開始'),
+      _Phase.idle => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ElevatedButton.icon(
+            onPressed: _startPlaying,
+            icon: const Icon(Icons.play_arrow),
+            label: const Text('演奏開始'),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: _playAuto,
+            icon: const Icon(Icons.smart_toy),
+            label: const Text('自動演奏'),
+          ),
+        ],
       ),
       _Phase.preamble => ElevatedButton.icon(
         onPressed: null,
@@ -416,6 +469,15 @@ class _SenderPageState extends State<SenderPage> {
             child: const Text('━ 長'),
           ),
         ],
+      ),
+      _Phase.auto => ElevatedButton.icon(
+        onPressed: null,
+        icon: const SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        label: const Text('自動演奏中...'),
       ),
       _Phase.done => Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -455,6 +517,11 @@ class _StatusLine extends StatelessWidget {
         _Phase.playing => Text(
           '$cursor / $total 打',
           key: const ValueKey('playing'),
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        _Phase.auto => Text(
+          '自動演奏中  $cursor / $total 打',
+          key: const ValueKey('auto'),
           style: Theme.of(context).textTheme.bodySmall,
         ),
         _Phase.done => Text(

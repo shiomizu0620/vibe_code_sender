@@ -70,8 +70,17 @@
   .chip.star{border-color:#3a4a3f;box-shadow:inset 0 0 0 1px rgba(84,224,138,.15)}
   .chip .badge{position:absolute;top:-8px;right:-6px;font-size:9px;font-family:var(--mono);
     background:var(--me);color:#06210f;border-radius:4px;padding:1px 5px;font-weight:700}
+  .chip.done{border-color:var(--me);background:rgba(84,224,138,.08)}
   .chip.done .id{color:var(--me)}
+  .chip.done .ck{position:absolute;top:-8px;right:-6px;font-size:10px;font-family:var(--mono);
+    background:var(--me);color:#06210f;border-radius:4px;padding:0 5px;font-weight:700}
   .chip.wait{border-style:dashed}
+  .chip.now{border-color:var(--a);background:rgba(244,165,42,.08)}
+  .chip.now .nb{position:absolute;top:-8px;right:-6px;font-size:9px;font-family:var(--mono);
+    background:var(--a);color:#241500;border-radius:4px;padding:1px 5px;font-weight:700}
+  .statusleg{display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:11.5px;color:var(--mut);margin:-6px 0 18px}
+  .statusleg span{display:flex;align-items:center;gap:6px}
+  .statusleg i{width:11px;height:11px;border-radius:3px;display:inline-block;border:1px solid}
   .arrow{align-self:center;color:var(--faint);font-family:var(--mono)}
   .ca{color:var(--a)} .cb{color:var(--b)} .cme{color:var(--me)} .cco{color:var(--co)}
 
@@ -108,78 +117,91 @@
     </div>
   </header>
 
+  <div class="statusleg">
+    <span><i style="border-color:var(--me);background:rgba(84,224,138,.18)"></i>✅ 完了</span>
+    <span><i style="border-color:var(--a);background:rgba(244,165,42,.18)"></i>▶ 着手中／次やる</span>
+    <span><i style="border-color:var(--faint);border-style:dashed"></i>⏳ 待ち（依存あり）</span>
+    <span style="color:var(--faint)">最終更新時点：受信 R1–R7・R9 / 送信 F1–F6 / S1 完了。受信の入口を<b style="color:var(--ink)">マイク → ピエゾ</b>に変更。</span>
+  </div>
+
   <!-- DATA FLOW -->
   <div class="sectitle">データの流れ（１回の送信で何が起きるか）</div>
   <div class="pipe">
     <div class="stage"><div class="n">01</div><div class="t">スマホが振動する</div><span class="tag ta">A / B</span> <span class="tag tb">F1–F6</span></div>
-    <div class="stage"><div class="n">02</div><div class="t">マイクで拾う</div><span class="tag tme">自分 · R4</span></div>
+    <div class="stage"><div class="n">02</div><div class="t">ピエゾで拾う（接触）</div><span class="tag tme">自分 · E1/R4</span></div>
     <div class="stage"><div class="n">03</div><div class="t">ON/OFFに変換</div><span class="tag tme">自分 · R2</span></div>
     <div class="stage"><div class="n">04</div><div class="t">短/長 → id を復元</div><span class="tag tme">自分 · R1 ✓</span></div>
     <div class="stage"><div class="n">05</div><div class="t">id で URL を検索</div><span class="tag tme">自分 · R9</span></div>
     <div class="stage"><div class="n">06</div><div class="t">ブラウザで開く</div><span class="tag tme">自分 · R7 / R10</span></div>
   </div>
-  <div class="note">※ 事前準備として「URL登録 → id発行」が上流にある（共通 S1 ＋ 送信 F9）。</div>
+  <div class="note">※ 事前準備として「URL登録 → id発行」が上流にある（共通 S1 ＋ 送信 F9）。<br>※ 内蔵マイクでは弱い振動を拾えなかったため、受信は<b style="color:var(--me)">ピエゾ（接触振動センサー）</b>に切替。空気の騒音に強く、弱い振動も接触で拾える。</div>
 
   <!-- LANES -->
   <div class="sectitle">誰が・どの順で作るか</div>
 
   <div class="lane A">
-    <div class="lhead"><div class="who">Aさん</div><div class="role">振動担当<br>（震わせる下回り）</div><div class="px pa">Flutter</div></div>
+    <div class="lhead"><div class="who">Aさん</div><div class="role">振動担当／ロジック<br>（震わせる下回り）</div><div class="px pa">Flutter</div></div>
     <div class="track">
-      <div class="chip"><span class="id ca">F1</span><span class="ds">振動の基盤</span></div>
+      <div class="chip done"><span class="ck">✓</span><span class="id ca">F1</span><span class="ds">振動の基盤</span></div>
       <span class="arrow">→</span>
-      <div class="chip"><span class="id ca">F2</span><span class="ds">パターン生成<br>（プリアンブル＋短長）</span></div>
+      <div class="chip done"><span class="ck">✓</span><span class="id ca">F2</span><span class="ds">パターン生成<br>（プリアンブル＋短長）</span></div>
       <span class="arrow">→</span>
-      <div class="chip"><span class="id ca">F6</span><span class="ds">自動演奏</span></div>
+      <div class="chip done"><span class="ck">✓</span><span class="id ca">F6</span><span class="ds">自動演奏</span></div>
       <span class="arrow">→</span>
-      <div class="chip"><span class="id ca">F8</span><span class="ds">実機録音<br>→ R8の材料</span><span class="badge" style="background:var(--a);color:#241500">KEY</span></div>
+      <div class="chip wait"><span class="id ca">F8</span><span class="ds">実機録音<br>→ R8の材料（ピエゾ検証後）</span></div>
+      <span class="arrow">→</span>
+      <div class="chip"><span class="id ca">F9</span><span class="ds">Supabase登録<br>（URL→id発行）</span></div>
     </div>
   </div>
 
   <div class="lane B">
-    <div class="lhead"><div class="who">Bさん</div><div class="role">画面担当<br>（見せて演奏させる）</div><div class="px pb">Flutter</div></div>
+    <div class="lhead"><div class="who">Bさん</div><div class="role">画面担当／UI<br>（見せて演奏させる）</div><div class="px pb">Flutter</div></div>
     <div class="track">
-      <div class="chip"><span class="id cb">F3</span><span class="ds">encoder<br>（id→ビット列）</span></div>
+      <div class="chip done"><span class="ck">✓</span><span class="id cb">F3</span><span class="ds">encoder<br>（id→ビット列）</span></div>
       <span class="arrow">→</span>
-      <div class="chip star"><span class="id cb">F4</span><span class="ds">楽譜表示 ★</span></div>
+      <div class="chip done star"><span class="ck">✓</span><span class="id cb">F4</span><span class="ds">楽譜表示 ★</span></div>
       <span class="arrow">→</span>
-      <div class="chip star"><span class="id cb">F5</span><span class="ds">手動演奏ボタン ★</span></div>
+      <div class="chip done star"><span class="ck">✓</span><span class="id cb">F5</span><span class="ds">手動演奏ボタン ★</span></div>
       <span class="arrow">→</span>
-      <div class="chip"><span class="id cb">F7</span><span class="ds">id入力（テスト用）</span></div>
+      <div class="chip now"><span class="nb">次</span><span class="id cb">F7</span><span class="ds">id入力（テスト用）</span></div>
+      <span class="arrow">→</span>
+      <div class="chip"><span class="id cb">演出</span><span class="ds">楽譜・演奏の見栄え磨き<br>＋発表スライド</span></div>
     </div>
   </div>
 
   <div class="lane ME">
-    <div class="lhead"><div class="who">自分</div><div class="role">受信担当<br>（読み取って開く）</div><div class="px pme">Python</div></div>
+    <div class="lhead"><div class="who">自分</div><div class="role">受信担当／統括<br>（読み取って開く）</div><div class="px pme">Python</div></div>
     <div class="track">
-      <div class="chip done"><span class="id">R1</span><span class="ds">起動確認 ✓</span></div>
+      <div class="chip done"><span class="ck">✓</span><span class="id">R1</span><span class="ds">起動確認</span></div>
       <span class="arrow">→</span>
-      <div class="chip"><span class="id cme">R2</span><span class="ds">dsp：音→ON/OFF</span></div>
+      <div class="chip done"><span class="ck">✓</span><span class="id cme">R2</span><span class="ds">dsp：音→ON/OFF</span></div>
       <span class="arrow">→</span>
-      <div class="chip"><span class="id cme">R3</span><span class="ds">チャンネル＋偽センサー</span></div>
+      <div class="chip done"><span class="ck">✓</span><span class="id cme">R3</span><span class="ds">チャンネル＋偽センサー</span></div>
       <span class="arrow">→</span>
-      <div class="chip"><span class="id cme">R4</span><span class="ds">マイク入力</span></div>
+      <div class="chip done"><span class="ck">✓</span><span class="id cme">R4</span><span class="ds">マイク入力<br>（→拾えず・教訓）</span></div>
       <span class="arrow">→</span>
-      <div class="chip"><span class="id cme">R5</span><span class="ds">デバッグ可視化（目）</span></div>
+      <div class="chip done"><span class="ck">✓</span><span class="id cme">R5</span><span class="ds">デバッグ可視化（目）</span></div>
       <span class="arrow">→</span>
-      <div class="chip"><span class="id cme">R6</span><span class="ds">結合・受信ループ</span></div>
+      <div class="chip done"><span class="ck">✓</span><span class="id cme">R6</span><span class="ds">結合・受信ループ</span></div>
       <span class="arrow">→</span>
-      <div class="chip"><span class="id cme">R7</span><span class="ds">ターミナル演出</span></div>
+      <div class="chip done"><span class="ck">✓</span><span class="id cme">R7</span><span class="ds">ターミナル演出</span></div>
       <span class="arrow">→</span>
-      <div class="chip wait"><span class="id cme">R8</span><span class="ds">実機チューニング<br>← F8待ち</span></div>
+      <div class="chip done"><span class="ck">✓</span><span class="id cme">R9</span><span class="ds">Supabase逆引き<br>（offline保険付き）</span></div>
       <span class="arrow">→</span>
-      <div class="chip wait"><span class="id cme">R9</span><span class="ds">Supabase逆引き<br>← S1待ち</span></div>
+      <div class="chip now"><span class="nb">次</span><span class="id cme">E1</span><span class="ds">ピエゾ受信<br>★物理問題の解決鍵</span></div>
       <span class="arrow">→</span>
-      <div class="chip"><span class="id cme">R10</span><span class="ds">通し（受信側完成）</span></div>
+      <div class="chip wait"><span class="id cme">R8</span><span class="ds">ピエゾ向けチューニング<br>← ピエゾ＋F8待ち</span></div>
+      <span class="arrow">→</span>
+      <div class="chip wait"><span class="id cme">R10</span><span class="ds">通し（受信側完成）</span></div>
     </div>
   </div>
 
   <div class="lane CO">
     <div class="lhead"><div class="who">3人で</div><div class="role">共通・結合</div><div class="px pco">together</div></div>
     <div class="track">
-      <div class="chip"><span class="id cco">S1</span><span class="ds">Supabase用意<br>（最初に決める）</span></div>
+      <div class="chip done"><span class="ck">✓</span><span class="id cco">S1</span><span class="ds">Supabase用意</span></div>
       <span class="arrow">⇒</span>
-      <div class="chip"><span class="id cco">J1</span><span class="ds">通し結合<br>（自動→手動）</span></div>
+      <div class="chip wait"><span class="id cco">J1</span><span class="ds">通し結合<br>（自動→手動）</span></div>
       <span class="arrow">→</span>
       <div class="chip"><span class="id cco">J2</span><span class="ds">本番機チューニング</span></div>
       <span class="arrow">→</span>
@@ -188,26 +210,42 @@
   </div>
 
   <!-- SYNC POINTS -->
-  <div class="sectitle">待ち合わせ（レーンをまたぐ依存・ここだけ注意）</div>
+  <div class="sectitle">いまの山場・待ち合わせ</div>
   <div class="syncs">
-    <div class="sync">
-      <div class="h">① <b>F8</b> ⟶ <b>R8</b></div>
-      <p>Aさんの実機録音が無いと、自分の受信チューニングが始められない。<b style="color:var(--a)">最優先で回収</b>（F2が終われば録れる）。</p>
+    <div class="sync" style="border-color:var(--a)">
+      <div class="h" style="color:var(--a)">★ いま最大の山場：<b>ピエゾで拾えるか</b></div>
+      <p>内蔵マイクでは弱い振動を拾えないと判明。<b style="color:var(--a)">ピエゾ（接触センサー）で拾えるかの検証(E1)が、全体の分岐点</b>。拾えれば一気にR8→R10→J1へ。ダメなら送信を強くする等の再検討。</p>
     </div>
     <div class="sync">
-      <div class="h">② <b>S1</b> ⟶ <b>F9 / R9</b></div>
-      <p>Supabaseを誰のアカウントにするかの決めが、送信の登録(F9)と受信の逆引き(R9)を同時にブロック。<b style="color:var(--co)">初日に即決</b>。</p>
+      <div class="h">① <b>ピエゾ＋F8</b> ⟶ <b>R8</b></div>
+      <p>ピエゾで拾える前提で、本番送信機の録音(F8)を使ってチューニング。F6まで出来てるので録音はすぐ録れる。</p>
+    </div>
+    <div class="sync">
+      <div class="h">② <b>S1 ✓</b> ⟶ <b>F9 / R9</b></div>
+      <p>Supabaseは構築済み。受信R9は完了。残るは送信側F9（URL登録→id発行）。</p>
     </div>
     <div class="sync">
       <div class="h">③ <b>F5 + F6 + R10</b> ⟶ <b>J1</b></div>
-      <p>送信（手動・自動）と受信完成が揃って初めて、実機で end-to-end の結合ができる。ここが全体のゴール手前。</p>
+      <p>送信（手動・自動は完了）と受信完成(R10)が揃えば、実機で end-to-end 結合。ここがプロダクト完成の瞬間。</p>
+    </div>
+  </div>
+
+  <!-- 2人の次タスク -->
+  <div class="sectitle">手が空いたら：2人の次タスク</div>
+  <div class="syncs">
+    <div class="sync" style="border-color:var(--a)">
+      <div class="h" style="color:var(--a)">Aさん（ロジック）</div>
+      <p>F8の録音準備（自動演奏で正確に鳴らす）→ F9（Supabase登録ロジック）→ 結合J1の技術担当として自分と組む → stretch: QR方式(X1)。</p>
+    </div>
+    <div class="sync" style="border-color:var(--b)">
+      <div class="h" style="color:var(--b)">Bさん（UI）</div>
+      <p>F7（id入力）→ 楽譜・演奏UIの見栄え磨き（音ゲー風・演出）→ 発表スライド／デモ画面／デモ用URLの準備。発表の見栄えを主導。</p>
     </div>
   </div>
 
   <!-- STRETCH -->
   <div class="sectitle">拡張（本線 J1 が通ってから）</div>
   <div class="stretch">
-    <div class="scard"><b>E1</b> ピエゾ受信</div>
     <div class="scard"><b>E2</b> 机越し受信</div>
     <div class="scard"><b>E3</b> IMU受信</div>
     <div class="scard"><b>E4</b> 複数センサーAND判定</div>
@@ -216,7 +254,7 @@
     <div class="scard">+ 対戦モード（早打ち対決）</div>
   </div>
 
-  <div class="note">読み方：上＝1回の送信で起きること / 中＝担当ごとの作業順（左→右）/ 下＝レーンをまたぐ3つの待ち合わせ。★＝体験のコア、✓＝完了済み。</div>
+  <div class="note">読み方：上＝1回の送信で起きること / 中＝担当ごとの作業順（左→右・✅完了/▶次/⏳待ち）/ 下＝いまの山場と2人の次タスク。★＝体験のコア。<br>※ E1（ピエゾ）は物理問題の解決策として stretch から本線に格上げ。</div>
 
 </div>
 </body>
