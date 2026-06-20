@@ -1,3 +1,5 @@
+import 'package:device_preview/device_preview.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -17,7 +19,10 @@ const String _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   var ready = false;
-  if (_supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty) {
+  // Web では supabase_flutter が passkey(Web認証)用の第三者JSを要求し、未読込だと
+  // 初期化が失敗してタブごと落ちる。Web はテスト用途（device_preview で X1 UI 確認）
+  // なので Supabase 初期化をスキップし、_ConfigNeededPage のテスト導線へ誘導する。
+  if (!kIsWeb && _supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty) {
     try {
       // 我々が扱うのは anon key（JWT）。publishableKey は新形式キー用のため、
       // anon key に対応する anonKey 引数を使う（将来 anon key 廃止時に見直し）。
@@ -31,7 +36,14 @@ Future<void> main() async {
       debugPrint('Supabase 初期化に失敗しました: $e\n$st');
     }
   }
-  runApp(VibeCodeApp(configured: ready));
+  runApp(
+    DevicePreview(
+      // テスト用。Web のデバッグ時のみ端末プレビューを有効化し、
+      // 実機/リリースビルドには影響させない（kReleaseMode で除外）。
+      enabled: kIsWeb && !kReleaseMode,
+      builder: (context) => VibeCodeApp(configured: ready),
+    ),
+  );
 }
 
 class VibeCodeApp extends StatelessWidget {
@@ -44,6 +56,9 @@ class VibeCodeApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'VibeCode Sender',
+      // device_preview 連携（無効時は no-op として透過する）。
+      locale: DevicePreview.locale(context),
+      builder: DevicePreview.appBuilder,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
       ),
@@ -67,13 +82,14 @@ class _RootShellState extends State<_RootShell> {
     return Scaffold(
       body: IndexedStack(
         index: _tab,
-        children: const [UrlListPage(), GameView()],
+        children: const [UrlListPage(), X1DirectPage(), GameView()],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: (i) => setState(() => _tab = i),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.vibration), label: '演奏'),
+          NavigationDestination(icon: Icon(Icons.link), label: 'URL直接'),
           NavigationDestination(icon: Icon(Icons.sports_esports), label: 'ゲーム'),
         ],
       ),
@@ -81,23 +97,183 @@ class _RootShellState extends State<_RootShell> {
   }
 }
 
+/// X1（URL直接符号化）専用画面。登録不要で任意の短URLをそのまま演奏する。
+///
+/// id方式（Supabase逆引き）と異なり DB を介さないため、ここで打った URL を
+/// [SenderPage]（X1専用＝idなし）へ渡して演奏する。
+class X1DirectPage extends StatefulWidget {
+  const X1DirectPage({super.key});
+
+  @override
+  State<X1DirectPage> createState() => _X1DirectPageState();
+}
+
+class _X1DirectPageState extends State<X1DirectPage> {
+  final TextEditingController _controller = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _open() {
+    final url = _controller.text.trim();
+    if (url.isEmpty) {
+      setState(() => _error = 'URL を入力してください');
+      return;
+    }
+    // 演奏画面へ渡す前に符号化可否を検証（未対応文字・長さ超過をここで弾く）。
+    try {
+      encodeUrl(url);
+    } on FormatException {
+      setState(() => _error = 'X1で送れない文字が含まれます（小文字URLのみ対応）');
+      return;
+    } on ArgumentError {
+      setState(() => _error = 'URL が長すぎます（本体は最大 $x1MaxLength 文字）');
+      return;
+    }
+    setState(() => _error = null);
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        // id を渡さない＝X1専用で開く（モード切替トグルは出さない）。
+        builder: (_) => SenderPage(url: url),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        title: const Text('VibeCode — URL直接 (X1)'),
+      ),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  '登録不要で短URLをそのまま振動で送ります（X1モード）。\n'
+                  '小文字のみ・本体は最大 $x1MaxLength 文字。',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _controller,
+                  keyboardType: TextInputType.url,
+                  autocorrect: false,
+                  decoration: InputDecoration(
+                    labelText: '送る URL（小文字）',
+                    hintText: 'github.com',
+                    border: const OutlineInputBorder(),
+                    errorText: _error,
+                  ),
+                  onChanged: (_) {
+                    if (_error != null) setState(() => _error = null);
+                  },
+                  onSubmitted: (_) => _open(),
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: _open,
+                  icon: const Icon(Icons.vibration),
+                  label: const Text('演奏画面を開く'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Supabase が未設定、または初期化に失敗したときの案内画面。
-class _ConfigNeededPage extends StatelessWidget {
+///
+/// デバッグビルドでは Supabase を介さず SenderPage（X1 トグル）を直接開ける
+/// テスト導線を表示する（Web + device_preview での UI 確認用）。
+class _ConfigNeededPage extends StatefulWidget {
   const _ConfigNeededPage();
+
+  @override
+  State<_ConfigNeededPage> createState() => _ConfigNeededPageState();
+}
+
+class _ConfigNeededPageState extends State<_ConfigNeededPage> {
+  final TextEditingController _testUrlController = TextEditingController(
+    text: 'github.com',
+  );
+
+  @override
+  void dispose() {
+    _testUrlController.dispose();
+    super.dispose();
+  }
+
+  void _openTestSender() {
+    final url = _testUrlController.text.trim();
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        // X1（URL直接）専用で開く（id なし）。
+        builder: (_) => SenderPage(url: url.isEmpty ? 'github.com' : url),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('VibeCode Sender')),
-      body: const Center(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Text(
-            'Supabase に接続できません。\n'
-            '--dart-define-from-file=env.json で\n'
-            'SUPABASE_URL / SUPABASE_ANON_KEY を渡し、\n'
-            'ネットワークと鍵を確認してください。',
-            textAlign: TextAlign.center,
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Supabase に接続できません。\n'
+                  '--dart-define-from-file=env.json で\n'
+                  'SUPABASE_URL / SUPABASE_ANON_KEY を渡し、\n'
+                  'ネットワークと鍵を確認してください。',
+                  textAlign: TextAlign.center,
+                ),
+                if (kDebugMode) ...[
+                  const SizedBox(height: 32),
+                  const Divider(),
+                  const SizedBox(height: 16),
+                  Text(
+                    'テスト用（Supabase不要・X1確認）',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _testUrlController,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(
+                      labelText: 'テストURL（小文字）',
+                      hintText: 'github.com',
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) => _openTestSender(),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: _openTestSender,
+                    icon: const Icon(Icons.vibration),
+                    label: const Text('演奏画面を開く（X1テスト）'),
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
       ),
@@ -269,18 +445,26 @@ class _UrlListPageState extends State<UrlListPage> {
 
 enum _Phase { idle, preamble, playing, auto, done }
 
+/// 送信モード。[id]=従来のidモード（marker=0）/ [urlDirect]=X1モード（marker=1）。
+enum _SendMode { id, urlDirect }
+
 /// 演奏画面。選択した URL の [id] を楽譜化し、手動（F5）/ 自動（F6）で演奏する。
 ///
 /// id は URL一覧での選択で確定するため、ここでは編集せず表示のみ（F7 の
 /// id入力欄は一覧選択に置き換わった）。
 class SenderPage extends StatefulWidget {
-  const SenderPage({super.key, required this.id, this.url});
+  const SenderPage({super.key, this.id, this.url})
+    : assert(id != null || url != null, 'id か url のどちらかは必須');
 
-  /// 演奏対象の id（0〜255）。
-  final int id;
+  /// 演奏対象の id（0〜255）。X1専用（URL直接タブ）で開く場合は null。
+  /// null のときは id方式トグル・id表示を出さず、X1（URL直接）固定で演奏する。
+  final int? id;
 
-  /// 逆引き元の URL（表示用・任意）。
+  /// 逆引き元の URL（表示用・X1の符号化対象）。
   final String? url;
+
+  /// id を持たない＝X1（URL直接）専用で開かれたか。
+  bool get isUrlOnly => id == null;
 
   @override
   State<SenderPage> createState() => _SenderPageState();
@@ -291,7 +475,11 @@ class _SenderPageState extends State<SenderPage> {
 
   bool? _hasVibrator;
 
-  late final List<Pulse> _pulses = encode(widget.id);
+  // X1専用（id なし）で開かれたら urlDirect 固定。それ以外は従来どおり id 方式から。
+  late _SendMode _mode = widget.isUrlOnly ? _SendMode.urlDirect : _SendMode.id;
+  late List<Pulse> _pulses = widget.isUrlOnly
+      ? encodeUrl(widget.url!)
+      : encode(widget.id!);
   int _cursor = 0;
   _Phase _phase = _Phase.idle;
   bool _vibrating = false; // 振動中は連打を無視する
@@ -342,17 +530,24 @@ class _SenderPageState extends State<SenderPage> {
     ) {
       playbackFailed = true;
     });
+    // 振動開始とほぼ同時刻から計時し、カーソルは「絶対経過時間」で進める。
+    // 1打ずつ delay を積み上げると微小誤差が蓄積し、打数の多い X1 では実振動と
+    // カーソルがずれる。毎ステップ Stopwatch に再同期して蓄積ドリフトを防ぐ。
+    final clock = Stopwatch()..start();
 
     const preambleMs = (preambleOnMs + preambleOffMs) * preambleRepeat;
-    await Future.delayed(const Duration(milliseconds: preambleMs));
+    // 各打が「鳴り終わる」絶対時刻を積算し、その時刻にカーソルを i+1 へ進める。
+    var elapsedTargetMs = preambleMs;
     for (var i = 0; i < _pulses.length; i++) {
       final onMs = _pulses[i] == Pulse.long ? longMs : shortMs;
-      await Future.delayed(Duration(milliseconds: onMs));
+      elapsedTargetMs += onMs;
+      final waitMs = elapsedTargetMs - clock.elapsedMilliseconds;
+      if (waitMs > 0) {
+        await Future.delayed(Duration(milliseconds: waitMs));
+      }
       if (!mounted || _phase != _Phase.auto) return;
       setState(() => _cursor = i + 1);
-      if (i < _pulses.length - 1) {
-        await Future.delayed(const Duration(milliseconds: gapMs));
-      }
+      elapsedTargetMs += gapMs; // 次の打の前に gap を挟む
     }
 
     await playback;
@@ -401,6 +596,47 @@ class _SenderPageState extends State<SenderPage> {
     _mistakes.clear();
   });
 
+  /// 送信モードを切り替え、対応する [_pulses] を再計算して演奏状態をリセットする。
+  ///
+  /// URL直接（X1）は [widget.url] を [encodeUrl] で符号化する。符号化できない場合
+  /// （未対応文字・長さ超過）はモードを変えずに SnackBar で通知する。
+  void _setMode(_SendMode mode) {
+    if (mode == _mode) return;
+    List<Pulse> next;
+    if (mode == _SendMode.urlDirect) {
+      final url = widget.url;
+      if (url == null) return; // URL不明ならX1不可（ボタン側でも無効化済み）
+      try {
+        next = encodeUrl(url);
+      } on FormatException catch (e) {
+        _showModeError('このURLはX1で送れません: ${e.message}');
+        return;
+      } on ArgumentError catch (e) {
+        _showModeError('このURLはX1で送れません: ${e.message}');
+        return;
+      }
+    } else {
+      final id = widget.id;
+      if (id == null) return; // X1専用で開いた場合は id 方式へ切替不可
+      next = encode(id);
+    }
+    setState(() {
+      _mode = mode;
+      _pulses = next;
+      _cursor = 0;
+      _phase = _Phase.idle;
+      _vibrating = false;
+      _mistakes.clear();
+    });
+  }
+
+  void _showModeError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasVibrator = _hasVibrator;
@@ -409,13 +645,20 @@ class _SenderPageState extends State<SenderPage> {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: const Text('VibeCode Sender'),
       ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              if (hasVibrator == false)
+      // 楽譜は X1（URL直接）で打数が増えると縦に長くなる。収まる時は中央寄せ、
+      // あふれる時はスクロールできるようにして overflow を防ぐ。
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: constraints.maxHeight - 48,
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  if (hasVibrator == false)
                 const Padding(
                   padding: EdgeInsets.only(bottom: 16),
                   child: Text(
@@ -435,10 +678,18 @@ class _SenderPageState extends State<SenderPage> {
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
-              Text(
-                'id: ${widget.id}',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
+              if (!widget.isUrlOnly) ...[
+                Text(
+                  'id: ${widget.id}',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 12),
+                _buildModeSelector(context),
+              ] else
+                Text(
+                  'URL直接モード (X1)',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
               const SizedBox(height: 16),
               ScoreView(pulses: _pulses, cursor: _cursor, mistakes: _mistakes),
               const SizedBox(height: 8),
@@ -451,11 +702,41 @@ class _SenderPageState extends State<SenderPage> {
               const SizedBox(height: 32),
               _buildButtons(context),
               const SizedBox(height: 16),
-              TextButton(onPressed: _reset, child: const Text('リセット')),
-            ],
+                  TextButton(onPressed: _reset, child: const Text('リセット')),
+                ],
+              ),
+            ),
           ),
         ),
       ),
+    );
+  }
+
+  /// 送信モード切替（id方式 ↔ URL直接/X1）の最小トグル。
+  ///
+  /// URL不明（[widget.url] が null）や再生中（preamble/auto）は切替不可。
+  Widget _buildModeSelector(BuildContext context) {
+    final canSwitch =
+        widget.url != null &&
+        _phase != _Phase.preamble &&
+        _phase != _Phase.auto;
+    return SegmentedButton<_SendMode>(
+      segments: const [
+        ButtonSegment<_SendMode>(
+          value: _SendMode.id,
+          label: Text('id方式'),
+          icon: Icon(Icons.tag),
+        ),
+        ButtonSegment<_SendMode>(
+          value: _SendMode.urlDirect,
+          label: Text('URL直接'),
+          icon: Icon(Icons.link),
+        ),
+      ],
+      selected: {_mode},
+      onSelectionChanged: canSwitch
+          ? (selection) => _setMode(selection.first)
+          : null,
     );
   }
 
