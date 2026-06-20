@@ -88,6 +88,7 @@ class _GameViewState extends State<GameView>
     });
     try {
       final entries = await _service.fetchUrls();
+      if (!mounted) return;
       _pageController?.dispose();
       final ctrl = PageController(viewportFraction: 0.78);
       setState(() {
@@ -100,6 +101,7 @@ class _GameViewState extends State<GameView>
         }
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _loadingUrls = false;
         _urlError = '読込失敗';
@@ -171,7 +173,10 @@ class _GameViewState extends State<GameView>
     });
   }
 
-  void _onTapDown(TapDownDetails _) {
+  void _onTapDown(TapDownDetails details) {
+    // Ignore taps outside the tap pad area (bottom 20% of screen).
+    final screenH = context.size?.height ?? double.infinity;
+    if (details.localPosition.dy < screenH * 0.80) return;
     if (!_started || _gc.state != GameState.playing) return;
     final gameMs = _displayMs - _travelMs;
     if (gameMs < 0) return;
@@ -951,5 +956,10 @@ class _GamePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _GamePainter old) =>
-      displayMs != old.displayMs || results.length != old.results.length;
+      displayMs != old.displayMs ||
+      notes.length != old.notes.length ||
+      results.length != old.results.length ||
+      effects.length != old.effects.length ||
+      holdStartMs.length != old.holdStartMs.length ||
+      travelMs != old.travelMs;
 }
