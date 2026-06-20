@@ -63,6 +63,9 @@ class _GameViewState extends State<GameView>
   void _onControllerChange() {
     if (_gc.state == GameState.finished && _started) {
       _ticker.stop();
+      // _displayMs is intentionally NOT reset here so the waveform stays at the
+      // end position until the user presses play again. Ticker.start() always
+      // resets elapsed to zero, so _displayMs will be overwritten on next start.
       setState(() => _started = false);
     }
   }
@@ -459,7 +462,12 @@ class _WaveformPainter extends CustomPainter {
     required bool isPast,
     required bool isActive,
   }) {
-    final rect = Rect.fromLTWH(x + 1, containerH - blockH, w - 2, blockH);
+    final rect = Rect.fromLTWH(
+      x + 1,
+      containerH - blockH,
+      max(0.0, w - 2),
+      blockH,
+    );
     if (!isPast && !isActive) {
       canvas.drawRect(
         rect,
