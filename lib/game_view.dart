@@ -57,10 +57,7 @@ class _BgPainter extends CustomPainter {
         ..shader = RadialGradient(
           center: const Alignment(0.9, -0.9),
           radius: 1.4,
-          colors: [
-            const Color(0xFF36E3E3).withAlpha(20),
-            Colors.transparent,
-          ],
+          colors: [const Color(0xFF36E3E3).withAlpha(20), Colors.transparent],
         ).createShader(Rect.fromLTWH(0, 0, size.width, size.height)),
     );
   }
