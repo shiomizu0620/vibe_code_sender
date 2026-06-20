@@ -48,4 +48,11 @@ class VibratorService {
     }
     await Vibration.vibrate(pattern: pattern);
   }
+
+  /// 再生中の振動を即時停止する。
+  ///
+  /// 自動演奏（[play] にプリアンブル込みの長いパターンを一括投入する方式）は
+  /// 端末側で再生が進むため、UI のリセットだけでは止まらない。リセットや
+  /// 画面離脱時にこれを呼んで実際の振動を打ち切る。
+  Future<void> cancel() => Vibration.cancel();
 }
