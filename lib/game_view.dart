@@ -263,6 +263,7 @@ class _GamePainter extends CustomPainter {
   }
 
   void _drawNotes(Canvas canvas, Offset center, double ringR) {
+    if (travelMs <= 0) return;
     for (final note in notes) {
       final spawnMs = note.hitMs - travelMs;
       final endMs = note.hitMs + _exitMs;
@@ -292,14 +293,14 @@ class _GamePainter extends CustomPainter {
   void _drawCircleNote(Canvas canvas, Offset pos, double opacity) {
     canvas.drawCircle(
       pos,
-      16,
+      28,
       Paint()
-        ..color = _neonAmber.withAlpha((opacity * 50).toInt())
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
+        ..color = _neonAmber.withAlpha((opacity * 60).toInt())
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14),
     );
     canvas.drawCircle(
       pos,
-      9,
+      16,
       Paint()..color = _neonAmber.withAlpha((opacity * 255).toInt()),
     );
   }
@@ -313,7 +314,7 @@ class _GamePainter extends CustomPainter {
     double opacity,
   ) {
     if (ringProgress > 0.05) {
-      final trailLen = min(ringProgress, 1.0) * 48;
+      final trailLen = min(ringProgress, 1.0) * 72;
       final trailEnd = Offset(
         pos.dx - cos(angle) * trailLen,
         pos.dy - sin(angle) * trailLen,
@@ -322,23 +323,23 @@ class _GamePainter extends CustomPainter {
         trailEnd,
         pos,
         Paint()
-          ..color = _neonCyan.withAlpha((opacity * 120).toInt())
-          ..strokeWidth = 3
+          ..color = _neonCyan.withAlpha((opacity * 160).toInt())
+          ..strokeWidth = 5
           ..strokeCap = StrokeCap.round,
       );
     }
     canvas.drawCircle(
       pos,
-      18,
+      32,
       Paint()
-        ..color = _neonCyan.withAlpha((opacity * 40).toInt())
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
+        ..color = _neonCyan.withAlpha((opacity * 50).toInt())
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14),
     );
     final path = Path()
-      ..moveTo(pos.dx, pos.dy - 12)
-      ..lineTo(pos.dx + 6.6, pos.dy)
-      ..lineTo(pos.dx, pos.dy + 12)
-      ..lineTo(pos.dx - 6.6, pos.dy)
+      ..moveTo(pos.dx, pos.dy - 20)
+      ..lineTo(pos.dx + 11, pos.dy)
+      ..lineTo(pos.dx, pos.dy + 20)
+      ..lineTo(pos.dx - 11, pos.dy)
       ..close();
     canvas.drawPath(
       path,
