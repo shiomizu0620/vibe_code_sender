@@ -94,17 +94,27 @@ List<Note> buildChart(int id) {
       ),
   ];
 
+  // Maimai-style: 8 clock positions, seeded by id for determinism.
+  // Adjacent notes always come from different positions.
+  final rng = Random(id);
+  var lastPos = -1;
+
   final notes = <Note>[];
   var cursorMs = 0;
   for (var i = 0; i < symbols.length; i++) {
     final s = symbols[i];
+    int pos;
+    do {
+      pos = rng.nextInt(8);
+    } while (pos == lastPos);
+    lastPos = pos;
     notes.add(
       Note(
         type: s.durationMs >= longMs ? NoteType.hold : NoteType.tap,
         bit: s.bit,
         hitTimeMs: cursorMs,
         durationMs: s.durationMs,
-        angle: 2 * pi * i / symbols.length,
+        angle: 2 * pi * pos / 8,
         isPreamble: s.isPreamble,
       ),
     );
