@@ -1,18 +1,44 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'constants.dart';
 import 'encoder.dart';
 import 'game_view.dart';
 import 'pattern_builder.dart';
 import 'score_view.dart';
+import 'supabase_service.dart';
 import 'vibrator_service.dart';
 
-void main() {
-  runApp(const VibeCodeApp());
+/// Supabase 接続情報。anon key のみ。コミットせず `--dart-define-from-file`
+/// 等で外から渡す（CLAUDE.md セキュリティ方針: service_role key は持ち込まない）。
+const String _supabaseUrl = String.fromEnvironment('SUPABASE_URL');
+const String _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  var ready = false;
+  if (_supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty) {
+    try {
+      // 我々が扱うのは anon key（JWT）。publishableKey は新形式キー用のため、
+      // anon key に対応する anonKey 引数を使う（将来 anon key 廃止時に見直し）。
+      // ignore: deprecated_member_use
+      await Supabase.initialize(url: _supabaseUrl, anonKey: _supabaseAnonKey);
+      ready = true;
+    } catch (e, st) {
+      // 起動時の外部初期化は失敗し得る（ネットワーク不通・鍵不正など）。
+      // ここで握りつぶさずに throw すると runApp 前なのでアプリが起動しない。
+      // 未設定扱いにしてフォールバック画面で起動を継続する。
+      debugPrint('Supabase 初期化に失敗しました: $e\n$st');
+    }
+  }
+  runApp(VibeCodeApp(configured: ready));
 }
 
 class VibeCodeApp extends StatelessWidget {
-  const VibeCodeApp({super.key});
+  const VibeCodeApp({super.key, required this.configured});
+
+  /// Supabase の接続情報が渡されているか。
+  final bool configured;
 
   @override
   Widget build(BuildContext context) {
@@ -58,23 +84,217 @@ class _RootShellState extends State<_RootShell> {
   }
 }
 
+/// Supabase が未設定、または初期化に失敗したときの案内画面。
+class _ConfigNeededPage extends StatelessWidget {
+  const _ConfigNeededPage();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('VibeCode Sender')),
+      body: const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'Supabase に接続できません。\n'
+            '--dart-define-from-file=env.json で\n'
+            'SUPABASE_URL / SUPABASE_ANON_KEY を渡し、\n'
+            'ネットワークと鍵を確認してください。',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// F9: URL一覧 + 登録画面。登録すると id が発行され、選ぶと演奏画面へ。
+class UrlListPage extends StatefulWidget {
+  const UrlListPage({super.key, SupabaseService? service}) : _service = service;
+
+  final SupabaseService? _service;
+
+  @override
+  State<UrlListPage> createState() => _UrlListPageState();
+}
+
+class _UrlListPageState extends State<UrlListPage> {
+  late final SupabaseService _service = widget._service ?? SupabaseService();
+  final TextEditingController _urlController = TextEditingController();
+
+  late Future<List<UrlEntry>> _future;
+  bool _registering = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  @override
+  void dispose() {
+    _urlController.dispose();
+    super.dispose();
+  }
+
+  void _refresh() {
+    setState(() {
+      _future = _service.fetchUrls().catchError((Object e, StackTrace st) {
+        // 詳細はログへ。画面には FutureBuilder 側で定型文を出す。
+        debugPrint('URL一覧の取得に失敗: $e\n$st');
+        Error.throwWithStackTrace(e, st);
+      });
+    });
+  }
+
+  Future<void> _register() async {
+    final url = _urlController.text.trim();
+    if (url.isEmpty || _registering) return;
+    setState(() => _registering = true);
+    try {
+      final id = await _service.registerUrl(url);
+      if (!mounted) return;
+      _urlController.clear();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('登録しました → id: $id')));
+      _refresh();
+    } catch (e, st) {
+      debugPrint('URL登録に失敗: $e\n$st');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('登録に失敗しました。通信状況を確認して再度お試しください。')),
+      );
+    } finally {
+      if (mounted) setState(() => _registering = false);
+    }
+  }
+
+  void _openPlayer(UrlEntry entry) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SenderPage(id: entry.id, url: entry.url),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        title: const Text('VibeCode — URL一覧'),
+        actions: [
+          IconButton(
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh),
+            tooltip: '再読み込み',
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _urlController,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(
+                      labelText: '登録する URL',
+                      hintText: 'https://example.com',
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) => _register(),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                FilledButton(
+                  onPressed: _registering ? null : _register,
+                  child: _registering
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('登録'),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: FutureBuilder<List<UrlEntry>>(
+              future: _future,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text('読み込みに失敗しました。通信状況を確認してください。'),
+                    ),
+                  );
+                }
+                final entries = snapshot.data ?? const [];
+                if (entries.isEmpty) {
+                  return const Center(child: Text('まだURLがありません。上から登録してください。'));
+                }
+                return ListView.separated(
+                  itemCount: entries.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (context, i) {
+                    final entry = entries[i];
+                    return ListTile(
+                      leading: CircleAvatar(child: Text('${entry.id}')),
+                      title: Text(
+                        entry.url,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => _openPlayer(entry),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+enum _Phase { idle, preamble, playing, auto, done }
+
+/// 演奏画面。選択した URL の [id] を楽譜化し、手動（F5）/ 自動（F6）で演奏する。
+///
+/// id は URL一覧での選択で確定するため、ここでは編集せず表示のみ（F7 の
+/// id入力欄は一覧選択に置き換わった）。
 class SenderPage extends StatefulWidget {
-  const SenderPage({super.key});
+  const SenderPage({super.key, required this.id, this.url});
+
+  /// 演奏対象の id（0〜255）。
+  final int id;
+
+  /// 逆引き元の URL（表示用・任意）。
+  final String? url;
 
   @override
   State<SenderPage> createState() => _SenderPageState();
 }
-
-enum _Phase { idle, preamble, playing, auto, done }
 
 class _SenderPageState extends State<SenderPage> {
   final VibratorService _vibrator = VibratorService();
 
   bool? _hasVibrator;
 
-  // デモ用 id。F7 で入力欄に差し替える。
-  static const int _demoId = 42;
-  late List<Pulse> _pulses;
+  late final List<Pulse> _pulses = encode(widget.id);
   int _cursor = 0;
   _Phase _phase = _Phase.idle;
   bool _vibrating = false; // 振動中は連打を無視する
@@ -83,7 +303,6 @@ class _SenderPageState extends State<SenderPage> {
   @override
   void initState() {
     super.initState();
-    _pulses = encode(_demoId);
     _checkVibrator();
   }
 
@@ -127,7 +346,6 @@ class _SenderPageState extends State<SenderPage> {
       playbackFailed = true;
     });
 
-    // プリアンブル送出ぶんを待ってからカーソルを進め始める。
     const preambleMs = (preambleOnMs + preambleOffMs) * preambleRepeat;
     await Future.delayed(const Duration(milliseconds: preambleMs));
     for (var i = 0; i < _pulses.length; i++) {
@@ -140,7 +358,6 @@ class _SenderPageState extends State<SenderPage> {
       }
     }
 
-    // 再生の最終結果を確定させてから状態遷移する（catchError 済みなので throw しない）。
     await playback;
     if (!mounted || _phase != _Phase.auto) return;
     setState(() => _phase = playbackFailed ? _Phase.idle : _Phase.done);
@@ -211,8 +428,18 @@ class _SenderPageState extends State<SenderPage> {
                     style: TextStyle(color: Colors.redAccent),
                   ),
                 ),
+              if (widget.url != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    widget.url!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
               Text(
-                'id: $_demoId',
+                'id: ${widget.id}',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 16),
