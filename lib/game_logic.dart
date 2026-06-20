@@ -75,7 +75,18 @@ class Note {
 ///
 /// 振動の正確さ最優先のため、プリアンブルは見た目は「長2連」でも実時間は
 /// PROTOCOL 準拠の [preambleOnMs]=700ms で出す（データの long=450ms とは別物）。
-List<Note> buildChart(int id) {
+List<Note> buildChart(int id) =>
+    buildChartFromPulses(encode(id), angleSeed: id);
+
+/// 任意の [Pulse] 列（id方式・X1いずれも可）から譜面（[Note] 列）を生成する。
+///
+/// 先頭にプリアンブル[700ms ON,200ms OFF]×preambleRepeat を付け、続けて各 pulse を
+/// データ音（ON の後に [gapMs] の休符）として並べる。X1 の可変長 pulse 列もそのまま
+/// 譜面化できる（F11 注入式の音ゲーに乗せるためのAPI）。
+///
+/// [angleSeed] は maimai 風の8方向配置の乱数シード。id方式では id を渡して譜面を
+/// 決定的にする。X1 等で id が無い場合は既定値（0）でよい。
+List<Note> buildChartFromPulses(List<Pulse> pulses, {int angleSeed = 0}) {
   // 各音を (durationMs, restMs, bit, isPreamble) で並べる。
   final symbols = <_Symbol>[
     for (var i = 0; i < preambleRepeat; i++)
@@ -85,7 +96,7 @@ List<Note> buildChart(int id) {
         bit: null,
         isPreamble: true,
       ),
-    for (final pulse in encode(id))
+    for (final pulse in pulses)
       _Symbol(
         durationMs: pulse == Pulse.long ? longMs : shortMs,
         restMs: gapMs,
@@ -94,9 +105,9 @@ List<Note> buildChart(int id) {
       ),
   ];
 
-  // Maimai-style: 8 clock positions, seeded by id for determinism.
+  // Maimai-style: 8 clock positions, seeded by angleSeed for determinism.
   // Adjacent notes always come from different positions.
-  final rng = Random(id);
+  final rng = Random(angleSeed);
   var lastPos = -1;
 
   final notes = <Note>[];
@@ -181,6 +192,12 @@ class GameController extends ChangeNotifier {
   /// id を読み込んで譜面を作り、idle に戻す。
   void load(int id) {
     _notes = buildChart(id);
+    reset();
+  }
+
+  /// 任意の [Pulse] 列（X1 等）を読み込んで譜面を作り、idle に戻す。
+  void loadPulses(List<Pulse> pulses) {
+    _notes = buildChartFromPulses(pulses);
     reset();
   }
 

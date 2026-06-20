@@ -70,7 +70,12 @@ class _PulseChip extends StatelessWidget {
     final isMistakeDone = isDone && isMistake;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 150),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      // 固定サイズ＋中央寄せにする。現在位置の太字化や記号(●/━)の幅差で
+      // チップ幅が変わると Wrap が行ごとにガタつく（自動演奏で顕著）ため、
+      // サイズを固定してレイアウトを安定させる。
+      width: 48,
+      height: 48,
+      alignment: Alignment.center,
       decoration: BoxDecoration(
         color: isCurrent
             ? theme.colorScheme.primaryContainer

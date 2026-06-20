@@ -1,8 +1,31 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vibe_code_sender/constants.dart';
+import 'package:vibe_code_sender/encoder.dart';
 import 'package:vibe_code_sender/game_logic.dart';
+import 'package:vibe_code_sender/pattern_builder.dart';
 
 void main() {
+  group('buildChartFromPulses（pulse列 → Note列）', () {
+    test('回帰: buildChart(id) は buildChartFromPulses(encode(id)) と一致', () {
+      expect(
+        buildChart(42).toString(),
+        buildChartFromPulses(encode(42)).toString(),
+      );
+    });
+
+    test('X1 可変長 pulse 列も譜面化できる（プリアンブル + 各pulse）', () {
+      final pulses = encodeUrl('github.com');
+      final notes = buildChartFromPulses(pulses);
+      expect(notes.length, preambleRepeat + pulses.length);
+      // 先頭はプリアンブル、その後はデータ音
+      expect(notes.first.isPreamble, isTrue);
+      expect(notes[preambleRepeat].isPreamble, isFalse);
+      // X1 先頭データ音は marker=long → bit=1
+      expect(pulses.first, Pulse.long);
+      expect(notes[preambleRepeat].bit, 1);
+    });
+  });
+
   group('buildChart（id → Note列）', () {
     test('音数 = プリアンブル2 + モードマーカー1 + id8 = 11', () {
       expect(buildChart(42).length, preambleRepeat + 9);
