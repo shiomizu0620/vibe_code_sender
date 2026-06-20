@@ -242,6 +242,13 @@ class GameController extends ChangeNotifier {
         _results[_cursor] = Judgement.perfect; // 機械発火は常に正確
         _cursor++;
       }
+    } else {
+      // Hybrid: auto-advance notes that passed the good window without being tapped.
+      while (_cursor < _notes.length &&
+          elapsedMs - _notes[_cursor].hitTimeMs > goodWindowMs) {
+        _results[_cursor] = Judgement.miss;
+        _cursor++;
+      }
     }
 
     if (elapsedMs >= chartEndMs) {
@@ -265,6 +272,15 @@ class GameController extends ChangeNotifier {
     if (_cursor >= _notes.length) _state = GameState.finished;
     notifyListeners();
     return judgement;
+  }
+
+  /// プリアンブルノーツをカーソルスキップ（外部で振動済みのため発火しない）。
+  void skipPreamble() {
+    while (_cursor < _notes.length && _notes[_cursor].isPreamble) {
+      _results[_cursor] = Judgement.perfect;
+      _cursor++;
+    }
+    notifyListeners();
   }
 
   /// 固定長の振動を実時間タイマで一発出す（描画と独立）。
