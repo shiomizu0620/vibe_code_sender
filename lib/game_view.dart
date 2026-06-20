@@ -22,7 +22,8 @@ const _mutedColor = Color(0xFF7A6E9A);
 // ── timing ────────────────────────────────────────────────────────────
 // Fixed protocol timing offset. Notes always reach the judgment line at
 // displayMs = hitTimeMs + _judgeOffsetMs, regardless of visual speed.
-const int _judgeOffsetMs = (preambleOnMs + preambleOffMs) * preambleRepeat; // 1800
+const int _judgeOffsetMs =
+    (preambleOnMs + preambleOffMs) * preambleRepeat; // 1800
 const double _exitMs = 500;
 const int _demoId = 42; // fallback when Supabase is unavailable
 const int _effectDurationMs = 600;
@@ -155,11 +156,13 @@ class _GameViewState extends State<GameView>
       _gc.tick(gameMs);
       for (var i = cursorBefore; i < _gc.cursor; i++) {
         if (_gc.results[i] == Judgement.miss) {
-          _effects.add(_JudgmentEffect(
-            judgement: Judgement.miss,
-            angle: _gc.notes[i].angle,
-            startMs: ms,
-          ));
+          _effects.add(
+            _JudgmentEffect(
+              judgement: Judgement.miss,
+              angle: _gc.notes[i].angle,
+              startMs: ms,
+            ),
+          );
           _combo = 0;
         }
       }
@@ -190,16 +193,15 @@ class _GameViewState extends State<GameView>
     // Fire preamble at judgeOffsetMs so it ends just before the first data
     // note reaches the judgment line (gap = preambleOffMs = 200ms ✓).
     // This delay is fixed regardless of visual note speed.
+    Future.delayed(const Duration(milliseconds: _judgeOffsetMs), () {
+      if (mounted && _countdownRemaining != null) {
+        _vibrator.play(<int>[0, preambleOnMs]);
+      }
+    });
     Future.delayed(
-      const Duration(milliseconds: _judgeOffsetMs),
-      () {
-        if (mounted && _countdownRemaining != null) {
-          _vibrator.play(<int>[0, preambleOnMs]);
-        }
-      },
-    );
-    Future.delayed(
-      const Duration(milliseconds: _judgeOffsetMs + preambleOnMs + preambleOffMs),
+      const Duration(
+        milliseconds: _judgeOffsetMs + preambleOnMs + preambleOffMs,
+      ),
       () {
         if (mounted && _countdownRemaining != null) {
           _vibrator.play(<int>[0, preambleOnMs]);
@@ -407,9 +409,7 @@ class _GameViewState extends State<GameView>
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 5),
         decoration: BoxDecoration(
           color: selected ? _neonPurple.withAlpha(40) : Colors.transparent,
-          border: Border.all(
-            color: selected ? _neonPurple : _lineColor,
-          ),
+          border: Border.all(color: selected ? _neonPurple : _lineColor),
           borderRadius: BorderRadius.only(
             topLeft: isLeft ? const Radius.circular(6) : Radius.zero,
             bottomLeft: isLeft ? const Radius.circular(6) : Radius.zero,
@@ -481,9 +481,7 @@ class _GameViewState extends State<GameView>
         _directUrlReady = true;
       });
     } on FormatException {
-      setState(
-        () => _directUrlError = 'X1で送れない文字が含まれます（小文字URLのみ）',
-      );
+      setState(() => _directUrlError = 'X1で送れない文字が含まれます（小文字URLのみ）');
     } on ArgumentError catch (e) {
       setState(() => _directUrlError = 'X1で送れません: ${e.message}');
     }
@@ -497,11 +495,7 @@ class _GameViewState extends State<GameView>
       children: [
         Text(
           'ノーツ速度',
-          style: TextStyle(
-            color: _mutedColor,
-            fontSize: 10,
-            letterSpacing: 1,
-          ),
+          style: TextStyle(color: _mutedColor, fontSize: 10, letterSpacing: 1),
         ),
         const SizedBox(width: 10),
         _speedBtn(
@@ -542,16 +536,10 @@ class _GameViewState extends State<GameView>
         height: 24,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          border: Border.all(
-            color: active ? _neonPurple : _lineColor,
-          ),
+          border: Border.all(color: active ? _neonPurple : _lineColor),
           color: active ? _neonPurple.withAlpha(30) : Colors.transparent,
         ),
-        child: Icon(
-          icon,
-          size: 14,
-          color: active ? _neonPurple : _lineColor,
-        ),
+        child: Icon(icon, size: 14, color: active ? _neonPurple : _lineColor),
       ),
     );
   }
@@ -676,15 +664,23 @@ class _GameViewState extends State<GameView>
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
         children: [
-          Expanded(child: _buildEncTab('ID', subtitle: '9打 · 固定長', useX1: false)),
+          Expanded(
+            child: _buildEncTab('ID', subtitle: '9打 · 固定長', useX1: false),
+          ),
           const SizedBox(width: 12),
-          Expanded(child: _buildEncTab('X1', subtitle: '長譜面 · URL直接', useX1: true)),
+          Expanded(
+            child: _buildEncTab('X1', subtitle: '長譜面 · URL直接', useX1: true),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildEncTab(String label, {required String subtitle, required bool useX1}) {
+  Widget _buildEncTab(
+    String label, {
+    required String subtitle,
+    required bool useX1,
+  }) {
     final selected = _listUseX1 == useX1;
     return GestureDetector(
       onTap: () => _setListEncoding(useX1: useX1),
@@ -692,7 +688,9 @@ class _GameViewState extends State<GameView>
         duration: const Duration(milliseconds: 120),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
         decoration: BoxDecoration(
-          color: selected ? _neonCyan.withAlpha(38) : Colors.black.withAlpha(60),
+          color: selected
+              ? _neonCyan.withAlpha(38)
+              : Colors.black.withAlpha(60),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: selected ? _neonCyan : _lineColor,
@@ -1181,12 +1179,16 @@ class _GameViewState extends State<GameView>
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
         style: ElevatedButton.styleFrom(
-          backgroundColor: ok ? _neonCyan.withAlpha(80) : Colors.white.withAlpha(10),
+          backgroundColor: ok
+              ? _neonCyan.withAlpha(80)
+              : Colors.white.withAlpha(10),
           foregroundColor: ok ? Colors.white : _mutedColor,
           side: BorderSide(color: ok ? _neonCyan : _lineColor, width: 1.5),
           padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
     }
@@ -1209,9 +1211,7 @@ class _GameViewState extends State<GameView>
         ),
         padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
         elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }
