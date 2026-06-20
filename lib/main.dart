@@ -47,7 +47,7 @@ class VibeCodeApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
       ),
-      home: const _RootShell(),
+      home: configured ? const _RootShell() : const _ConfigNeededPage(),
     );
   }
 }
@@ -67,7 +67,7 @@ class _RootShellState extends State<_RootShell> {
     return Scaffold(
       body: IndexedStack(
         index: _tab,
-        children: const [SenderPage(), GameView()],
+        children: const [UrlListPage(), GameView()],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
