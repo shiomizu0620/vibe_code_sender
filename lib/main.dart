@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'constants.dart';
 import 'encoder.dart';
+import 'game_view.dart';
 import 'pattern_builder.dart';
 import 'score_view.dart';
 import 'vibrator_service.dart';
@@ -20,7 +21,39 @@ class VibeCodeApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
       ),
-      home: const SenderPage(),
+      home: const _RootShell(),
+    );
+  }
+}
+
+class _RootShell extends StatefulWidget {
+  const _RootShell();
+
+  @override
+  State<_RootShell> createState() => _RootShellState();
+}
+
+class _RootShellState extends State<_RootShell> {
+  int _tab = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: IndexedStack(
+        index: _tab,
+        children: const [SenderPage(), GameView()],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tab,
+        onDestinationSelected: (i) => setState(() => _tab = i),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.vibration), label: '演奏'),
+          NavigationDestination(
+            icon: Icon(Icons.sports_esports),
+            label: 'ゲーム',
+          ),
+        ],
+      ),
     );
   }
 }
