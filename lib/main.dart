@@ -8,6 +8,7 @@ import 'constants.dart';
 import 'encoder.dart';
 import 'game_view.dart';
 import 'pattern_builder.dart';
+import 'qr_import_view.dart';
 import 'score_view.dart';
 import 'supabase_service.dart';
 import 'vibrator_service.dart';
@@ -80,8 +81,8 @@ class _RootShellState extends State<_RootShell> {
 
   void _onTabChanged(int i) {
     setState(() => _tab = i);
-    if (i == 2) {
-      // ゲームタブ（index 2）のみ横向き。
+    if (i == 3) {
+      // ゲームタブ（index 3）のみ横向き。
       SystemChrome.setPreferredOrientations([
         DeviceOrientation.landscapeLeft,
         DeviceOrientation.landscapeRight,
@@ -102,11 +103,15 @@ class _RootShellState extends State<_RootShell> {
         children: [
           const UrlListPage(),
           const X1DirectPage(),
+          // QRタブはカメラを使う。IndexedStack は全タブを常駐させるため、
+          // 画面外でカメラを起動しないよう、アクティブな時だけマウントする
+          // （離れると破棄＝カメラ停止）。
+          _tab == 2 ? const QrImportPage() : const SizedBox.shrink(),
           GameView(onNavigateBack: () => _onTabChanged(0)),
         ],
       ),
-      // ゲームタブ（index 2）ではナビバーを隠す（F13: 全画面ゲーム）。
-      bottomNavigationBar: _tab == 2
+      // ゲームタブ（index 3）ではナビバーを隠す（F13: 全画面ゲーム）。
+      bottomNavigationBar: _tab == 3
           ? null
           : NavigationBar(
               selectedIndex: _tab,
@@ -114,6 +119,10 @@ class _RootShellState extends State<_RootShell> {
               destinations: const [
                 NavigationDestination(icon: Icon(Icons.vibration), label: '演奏'),
                 NavigationDestination(icon: Icon(Icons.link), label: 'URL直接'),
+                NavigationDestination(
+                  icon: Icon(Icons.qr_code_scanner),
+                  label: 'QR',
+                ),
                 NavigationDestination(
                   icon: Icon(Icons.sports_esports),
                   label: 'ゲーム',

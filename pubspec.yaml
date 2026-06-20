@@ -37,6 +37,10 @@ dependencies:
   vibration: ^3.1.8
   supabase_flutter: ^2.15.0
   device_preview: ^1.3.1
+  # QR読み取り: カメラスキャン + 画像からのデコード（mobile_scanner）。
+  mobile_scanner: ^7.0.0
+  # 画像ファイル（ギャラリー）からQRを読む際のファイル選択。
+  image_picker: ^1.1.2
 
 dev_dependencies:
   flutter_test:
