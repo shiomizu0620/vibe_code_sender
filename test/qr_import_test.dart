@@ -39,5 +39,16 @@ void main() {
       expect(classifyScannedText('hello world'), isA<QrRejected>());
       expect(classifyScannedText('just-some-text'), isA<QrRejected>());
     });
+
+    test('ドメイン直後にゴミが続く文字列は部分一致で通さない', () {
+      // 末尾アンカーが無いと先頭一致で通ってしまう退行を防ぐ。
+      expect(classifyScannedText('example.com@@@'), isA<QrRejected>());
+      expect(classifyScannedText('github.com foo'), isA<QrRejected>());
+    });
+
+    test('パス/クエリ/ポート付きのスキーム省略URLは許容する', () {
+      expect(classifyScannedText('github.com/a?x=1#y'), isA<QrX1>());
+      expect(classifyScannedText('example.com:8080/path'), isA<QrX1>());
+    });
   });
 }

@@ -84,9 +84,11 @@ bool _looksLikeUrl(String text) {
     final uri = Uri.tryParse(text);
     return uri != null && uri.host.isNotEmpty;
   }
-  // スキーム無し: 先頭が `ドメイン.tld`（英数とハイフン、最後にドット＋2文字以上）。
+  // スキーム無し: `ドメイン.tld` で始まり、任意でパス/クエリ/ポート等が続く形のみ。
+  // 末尾 $ まで検証しないと `example.com@@@` のような文字列が先頭一致で通り、
+  // 非URLを reject できなくなる（部分一致禁止）。
   return RegExp(
-    r'^[a-z0-9]([a-z0-9\-]*[a-z0-9])?(\.[a-z0-9\-]+)*\.[a-z]{2,}',
+    r'^[a-z0-9]([a-z0-9\-]*[a-z0-9])?(\.[a-z0-9\-]+)*\.[a-z]{2,}([/:?#][^\s]*)?$',
   ).hasMatch(lower);
 }
 
@@ -128,43 +130,72 @@ class _QrImportPageState extends State<QrImportPage> {
     for (final barcode in capture.barcodes) {
       final value = barcode.rawValue;
       if (value != null && value.isNotEmpty) {
-        _handleScanned(value);
+        _dispatch(value);
         return;
       }
     }
   }
 
   /// 画像ファイル（ギャラリー）からQRを読み込む。
+  ///
+  /// `pickImage` / `analyzeImage` は await を挟むため、開始時点でロックを取る。
+  /// そうしないと選択・解析中にカメラ側の [_onDetect] が走り、復帰後に二重処理
+  /// （registerUrl の重複・二重遷移）になりうる。プラグイン呼び出しは
+  /// PlatformException / MobileScannerException を投げうるので捕捉して通知に倒す。
   Future<void> _pickFromImage() async {
     if (_handling) return;
-    final XFile? file = await _picker.pickImage(source: ImageSource.gallery);
-    if (file == null || !mounted) return;
-    final BarcodeCapture? result = await _controller.analyzeImage(file.path);
-    if (!mounted) return;
-    final value = result?.barcodes
-        .map((b) => b.rawValue)
-        .firstWhere((v) => v != null && v.isNotEmpty, orElse: () => null);
-    if (value == null) {
-      _showMessage('画像からQRコードを読み取れませんでした');
-      return;
+    setState(() => _handling = true);
+    try {
+      final XFile? file = await _picker.pickImage(source: ImageSource.gallery);
+      if (!mounted) return;
+      if (file == null) {
+        // キャンセル。ロックを解いて元の状態へ。
+        _stopHandling();
+        return;
+      }
+      final BarcodeCapture? result = await _controller.analyzeImage(file.path);
+      if (!mounted) return;
+      final value = result?.barcodes
+          .map((b) => b.rawValue)
+          .firstWhere((v) => v != null && v.isNotEmpty, orElse: () => null);
+      if (value == null) {
+        _showMessage('画像からQRコードを読み取れませんでした');
+        _stopHandling();
+        return;
+      }
+      await _dispatch(value);
+    } catch (e, st) {
+      // 画像選択/解析の失敗（権限拒否・非対応形式・プラグイン内部エラー等）が
+      // 上位へ伝播して操作が中断しないよう、ここで握ってユーザー通知に倒す。
+      debugPrint('QR: 画像読み取りに失敗: $e\n$st');
+      _showMessage('画像の読み取りに失敗しました');
+      _stopHandling();
     }
-    _handleScanned(value);
   }
 
   /// 読み取れた文字列を検証し、モードを振り分けて演奏画面へ。
-  Future<void> _handleScanned(String raw) async {
-    setState(() => _handling = true);
+  ///
+  /// ロックは呼び出し元（[_onDetect] は未取得・[_pickFromImage] は取得済み）に
+  /// 関わらずここで確実に立てる。reject 時は解除し、遷移時は復帰後に解除する。
+  Future<void> _dispatch(String raw) async {
+    if (!_handling) setState(() => _handling = true);
     final result = classifyScannedText(raw);
     switch (result) {
       case QrRejected(:final reason):
         _showMessage(reason);
-        setState(() => _handling = false);
+        _stopHandling();
       case QrX1(:final url):
         // 短URLはX1で自己完結（id を渡さない＝URL直接専用で開く）。
         await _openSender(SenderPage(url: url));
       case QrIdMode(:final url):
         await _openIdMode(url);
     }
+  }
+
+  /// 処理ロックを解除する（マウント済みのときのみ）。
+  void _stopHandling() {
+    if (!mounted) return;
+    setState(() => _handling = false);
   }
 
   /// 長URLをSupabaseに登録してidを発行し、id方式で演奏画面へ。
@@ -178,7 +209,7 @@ class _QrImportPageState extends State<QrImportPage> {
       debugPrint('QR: URL登録に失敗: $e\n$st');
       if (!mounted) return;
       _showMessage('登録に失敗しました。通信状況を確認してください。');
-      setState(() => _handling = false);
+      _stopHandling();
     }
   }
 
@@ -187,8 +218,7 @@ class _QrImportPageState extends State<QrImportPage> {
     await Navigator.of(
       context,
     ).push(MaterialPageRoute<void>(builder: (_) => page));
-    if (!mounted) return;
-    setState(() => _handling = false);
+    _stopHandling();
   }
 
   void _showMessage(String message) {
