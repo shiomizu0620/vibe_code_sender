@@ -10,8 +10,8 @@ import 'vibrator_service.dart';
 /// 判定窓（ミリ秒）。hitTime との差の絶対値で判定する。
 ///
 /// 値は調整しやすいよう定数化（issue: Perfect±40ms / Good±90ms）。
-const int perfectWindowMs = 40;
-const int goodWindowMs = 90;
+const int perfectWindowMs = 150;
+const int goodWindowMs = 400;
 
 /// 打ち方の種類。tap=短押し（150ms）、hold=長押し（450ms/プリアンブル700ms）。
 enum NoteType { tap, hold }
@@ -94,17 +94,27 @@ List<Note> buildChart(int id) {
       ),
   ];
 
+  // Maimai-style: 8 clock positions, seeded by id for determinism.
+  // Adjacent notes always come from different positions.
+  final rng = Random(id);
+  var lastPos = -1;
+
   final notes = <Note>[];
   var cursorMs = 0;
   for (var i = 0; i < symbols.length; i++) {
     final s = symbols[i];
+    int pos;
+    do {
+      pos = rng.nextInt(8);
+    } while (pos == lastPos);
+    lastPos = pos;
     notes.add(
       Note(
         type: s.durationMs >= longMs ? NoteType.hold : NoteType.tap,
         bit: s.bit,
         hitTimeMs: cursorMs,
         durationMs: s.durationMs,
-        angle: 2 * pi * i / symbols.length,
+        angle: 2 * pi * pos / 8,
         isPreamble: s.isPreamble,
       ),
     );

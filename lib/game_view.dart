@@ -1,10 +1,11 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import 'constants.dart';
-import 'encoder.dart';
-import 'pattern_builder.dart';
+import 'game_logic.dart';
+import 'vibrator_service.dart';
 
 // ── color palette (matched to receiver oscilloscope) ──────────────────
 const _bg = Color(0xFF0B0D16);
@@ -15,29 +16,19 @@ const _lineColor = Color(0xFF313A55);
 const _mutedColor = Color(0xFF838AA6);
 
 // ── timing ────────────────────────────────────────────────────────────
-// Preamble duration doubles as note travel time: preamble = visual countdown.
-const int _preambleMs = (preambleOnMs + preambleOffMs) * preambleRepeat;
-const double _exitMs = 500; // ms a note stays visible past the ring
+// Travel time = preamble duration: preamble IS the visual countdown.
+// Note spawns at center when displayMs == note.hitTimeMs,
+// reaches ring when displayMs == note.hitTimeMs + _travelMs.
+const int _travelMs = (preambleOnMs + preambleOffMs) * preambleRepeat; // 1800
+const double _exitMs = 500;
 const int _demoId = 42;
-
-// ── note spec ─────────────────────────────────────────────────────────
-class _NoteSpec {
-  const _NoteSpec({
-    required this.type,
-    required this.angle,
-    required this.hitMs,
-  });
-  final Pulse type;
-  final double angle; // direction note travels from center (radians)
-  final double hitMs; // elapsed ms when note should reach the ring
-}
 
 // ── GameView ──────────────────────────────────────────────────────────
 class GameView extends StatefulWidget {
-  const GameView({super.key, this.pulses});
+  const GameView({super.key, this.id = _demoId});
 
-  /// Pulse list to animate. Defaults to encode(_demoId) until A-G injects real notes.
-  final List<Pulse>? pulses;
+  /// id to encode and animate. Swap for A-G's game controller injection later.
+  final int id;
 
   @override
   State<GameView> createState() => _GameViewState();
@@ -45,68 +36,73 @@ class GameView extends StatefulWidget {
 
 class _GameViewState extends State<GameView>
     with SingleTickerProviderStateMixin {
-  late final List<Pulse> _pulses;
-  late final List<_NoteSpec> _notes;
-  late final AnimationController _clock;
-  late final double _totalMs;
-  bool _playing = false;
+  late final VibratorService _vibrator;
+  late final GameController _gc;
+  late final Ticker _ticker;
+  int _displayMs = 0;
+  bool _started = false;
 
   @override
   void initState() {
     super.initState();
-    _pulses = widget.pulses ?? encode(_demoId);
-    _notes = _buildSpecs(_pulses);
-    _totalMs = _calcTotalMs(_pulses);
-    _clock =
-        AnimationController(
-          vsync: this,
-          duration: Duration(milliseconds: _totalMs.toInt()),
-        )..addStatusListener((s) {
-          if (s == AnimationStatus.completed) {
-            setState(() => _playing = false);
-          }
-        });
+    _vibrator = VibratorService();
+    _gc = GameController(vibrator: _vibrator);
+    _gc.load(widget.id);
+    _ticker = createTicker(_onTick);
+    _gc.addListener(_onControllerChange);
   }
 
   @override
   void dispose() {
-    _clock.dispose();
+    _gc.removeListener(_onControllerChange);
+    _ticker.dispose();
+    _gc.dispose();
     super.dispose();
   }
 
-  List<_NoteSpec> _buildSpecs(List<Pulse> pulses) {
-    final specs = <_NoteSpec>[];
-    double t = _preambleMs.toDouble();
-    for (var i = 0; i < pulses.length; i++) {
-      // Even angular distribution starting from top, clockwise
-      final angle = -pi / 2 + (2 * pi * i / pulses.length);
-      specs.add(_NoteSpec(type: pulses[i], angle: angle, hitMs: t));
-      t += ((pulses[i] == Pulse.long ? longMs : shortMs) + gapMs).toDouble();
+  void _onControllerChange() {
+    if (_gc.state == GameState.finished && _started) {
+      _ticker.stop();
+      // _displayMs is intentionally NOT reset here so the waveform stays at the
+      // end position until the user presses play again. Ticker.start() always
+      // resets elapsed to zero, so _displayMs will be overwritten on next start.
+      setState(() => _started = false);
     }
-    return specs;
   }
 
-  double _calcTotalMs(List<Pulse> pulses) {
-    double t = _preambleMs.toDouble();
-    for (final p in pulses) {
-      t += ((p == Pulse.long ? longMs : shortMs) + gapMs).toDouble();
-    }
-    return t + _exitMs;
+  void _onTick(Duration elapsed) {
+    setState(() => _displayMs = elapsed.inMilliseconds);
+    final gameMs = _displayMs - _travelMs;
+    if (gameMs >= 0) _gc.tick(gameMs);
   }
 
   void _start() {
-    setState(() => _playing = true);
-    _clock.forward(from: 0);
+    _gc.start();
+    _ticker.start();
+    setState(() => _started = true);
   }
 
   void _stop() {
-    _clock.stop();
-    _clock.reset();
-    setState(() => _playing = false);
+    _ticker.stop();
+    _gc.reset();
+    setState(() {
+      _started = false;
+      _displayMs = 0;
+    });
+  }
+
+  // Any touch on the game area = input down.
+  // GameController judges against the current cursor note and fires vibration.
+  void _onTapDown(TapDownDetails _) {
+    if (!_started || _gc.state != GameState.playing) return;
+    final gameMs = _displayMs - _travelMs;
+    if (gameMs < 0) return; // ignore taps during visual countdown
+    _gc.onInputDown(gameMs);
   }
 
   @override
   Widget build(BuildContext context) {
+    final gameMs = max(0, _displayMs - _travelMs).toDouble();
     return Scaffold(
       backgroundColor: _bg,
       appBar: AppBar(
@@ -126,37 +122,37 @@ class _GameViewState extends State<GameView>
       body: Column(
         children: [
           Expanded(
-            child: Stack(
-              children: [
-                Positioned.fill(child: CustomPaint(painter: _BgPainter())),
-                Positioned.fill(
-                  child: AnimatedBuilder(
-                    animation: _clock,
-                    builder: (context, _) => CustomPaint(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapDown: _onTapDown,
+              child: Stack(
+                children: [
+                  Positioned.fill(child: CustomPaint(painter: _BgPainter())),
+                  Positioned.fill(
+                    child: CustomPaint(
                       painter: _GamePainter(
-                        notes: _notes,
-                        elapsedMs: _clock.value * _totalMs,
-                        travelMs: _preambleMs.toDouble(),
+                        notes: _gc.notes,
+                        results: _gc.results,
+                        displayMs: _displayMs.toDouble(),
+                        travelMs: _travelMs.toDouble(),
                       ),
                     ),
                   ),
-                ),
-                Positioned(
-                  bottom: 24,
-                  left: 0,
-                  right: 0,
-                  child: Center(child: _buildPlayButton()),
-                ),
-              ],
+                  Positioned(
+                    bottom: 24,
+                    left: 0,
+                    right: 0,
+                    child: Center(child: _buildPlayButton()),
+                  ),
+                ],
+              ),
             ),
           ),
-          AnimatedBuilder(
-            animation: _clock,
-            builder: (context, _) => _WaveformBar(
-              pulses: _pulses,
-              elapsedMs: _clock.value * _totalMs,
-              totalMs: _totalMs,
-            ),
+          _WaveformBar(
+            notes: _gc.notes,
+            results: _gc.results,
+            gameMs: gameMs,
+            totalMs: (_gc.chartEndMs + _exitMs).clamp(1.0, double.infinity),
           ),
         ],
       ),
@@ -164,7 +160,7 @@ class _GameViewState extends State<GameView>
   }
 
   Widget _buildPlayButton() {
-    if (_playing) {
+    if (_started) {
       return OutlinedButton.icon(
         onPressed: _stop,
         icon: const Icon(Icons.stop, color: _neonCyan),
@@ -187,7 +183,7 @@ class _GameViewState extends State<GameView>
   }
 }
 
-// ── Background painter (static; shouldRepaint=false) ──────────────────
+// ── Background painter (static) ───────────────────────────────────────
 class _BgPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
@@ -210,11 +206,13 @@ class _BgPainter extends CustomPainter {
 class _GamePainter extends CustomPainter {
   _GamePainter({
     required this.notes,
-    required this.elapsedMs,
+    required this.results,
+    required this.displayMs,
     required this.travelMs,
   });
-  final List<_NoteSpec> notes;
-  final double elapsedMs;
+  final List<Note> notes;
+  final Map<int, Judgement> results;
+  final double displayMs;
   final double travelMs;
 
   @override
@@ -264,24 +262,31 @@ class _GamePainter extends CustomPainter {
 
   void _drawNotes(Canvas canvas, Offset center, double ringR) {
     if (travelMs <= 0) return;
-    for (final note in notes) {
-      final spawnMs = note.hitMs - travelMs;
-      final endMs = note.hitMs + _exitMs;
-      if (elapsedMs < spawnMs || elapsedMs > endMs) continue;
+    for (var i = 0; i < notes.length; i++) {
+      final note = notes[i];
 
-      // ringProgress: 0=center, 1=ring, >1=past ring
-      final ringProgress = (elapsedMs - spawnMs) / travelMs;
+      // Perfect/good hits disappear; misses pass through.
+      final j = results[i];
+      if (j != null && j != Judgement.miss) continue;
+
+      // displayMs == note.hitTimeMs → spawns at center
+      // displayMs == note.hitTimeMs + travelMs → hits ring
+      final spawnMs = note.hitTimeMs.toDouble();
+      if (displayMs < spawnMs || displayMs > spawnMs + travelMs + _exitMs) {
+        continue;
+      }
+
+      final ringProgress = (displayMs - spawnMs) / travelMs;
       final opacity = ringProgress >= 1.0
           ? (1.0 - (ringProgress - 1.0) * travelMs / _exitMs).clamp(0.0, 1.0)
           : 1.0;
-
       final dist = ringR * ringProgress.clamp(0.0, 1.6);
       final pos = Offset(
         center.dx + cos(note.angle) * dist,
         center.dy + sin(note.angle) * dist,
       );
 
-      if (note.type == Pulse.short) {
+      if (note.type == NoteType.tap) {
         _drawCircleNote(canvas, pos, opacity);
       } else {
         _drawStarNote(canvas, pos, note.angle, ringProgress, opacity);
@@ -289,7 +294,7 @@ class _GamePainter extends CustomPainter {
     }
   }
 
-  // Short note: amber filled circle with glow
+  // Short / tap note: amber filled circle with glow
   void _drawCircleNote(Canvas canvas, Offset pos, double opacity) {
     canvas.drawCircle(
       pos,
@@ -305,7 +310,7 @@ class _GamePainter extends CustomPainter {
     );
   }
 
-  // Long note: cyan diamond + trailing tail
+  // Long / hold note: cyan diamond + trailing tail
   void _drawStarNote(
     Canvas canvas,
     Offset pos,
@@ -348,18 +353,21 @@ class _GamePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _GamePainter old) => elapsedMs != old.elapsedMs;
+  bool shouldRepaint(covariant _GamePainter old) =>
+      displayMs != old.displayMs || results.length != old.results.length;
 }
 
 // ── Bottom waveform guide ─────────────────────────────────────────────
 class _WaveformBar extends StatelessWidget {
   const _WaveformBar({
-    required this.pulses,
-    required this.elapsedMs,
+    required this.notes,
+    required this.results,
+    required this.gameMs,
     required this.totalMs,
   });
-  final List<Pulse> pulses;
-  final double elapsedMs;
+  final List<Note> notes;
+  final Map<int, Judgement> results;
+  final double gameMs;
   final double totalMs;
 
   @override
@@ -384,8 +392,9 @@ class _WaveformBar extends StatelessWidget {
           Expanded(
             child: CustomPaint(
               painter: _WaveformPainter(
-                pulses: pulses,
-                elapsedMs: elapsedMs,
+                notes: notes,
+                results: results,
+                gameMs: gameMs,
                 totalMs: totalMs,
               ),
             ),
@@ -398,12 +407,14 @@ class _WaveformBar extends StatelessWidget {
 
 class _WaveformPainter extends CustomPainter {
   _WaveformPainter({
-    required this.pulses,
-    required this.elapsedMs,
+    required this.notes,
+    required this.results,
+    required this.gameMs,
     required this.totalMs,
   });
-  final List<Pulse> pulses;
-  final double elapsedMs;
+  final List<Note> notes;
+  final Map<int, Judgement> results;
+  final double gameMs;
   final double totalMs;
 
   @override
@@ -411,42 +422,27 @@ class _WaveformPainter extends CustomPainter {
     final pxPerMs = size.width / totalMs;
     final h = size.height;
 
-    // Preamble: two long cyan blocks
-    for (var i = 0; i < preambleRepeat; i++) {
-      final x = i * (preambleOnMs + preambleOffMs) * pxPerMs;
-      final w = preambleOnMs * pxPerMs;
-      final onMs = i * (preambleOnMs + preambleOffMs).toDouble();
-      _block(
-        canvas,
-        x,
-        w,
-        h,
-        h,
-        _neonCyan,
-        isPast: elapsedMs >= onMs + preambleOnMs,
-        isActive: elapsedMs >= onMs && elapsedMs < onMs + preambleOnMs,
-      );
-    }
+    for (var i = 0; i < notes.length; i++) {
+      final note = notes[i];
+      final x = note.hitTimeMs * pxPerMs;
+      final w = (note.durationMs * pxPerMs).clamp(1.0, double.infinity);
+      final bh = note.type == NoteType.hold ? h : h * 0.55;
+      final color = note.type == NoteType.hold ? _neonCyan : _neonAmber;
 
-    // Data notes: short=amber half-height, long=cyan full-height
-    double t = _preambleMs.toDouble();
-    for (final p in pulses) {
-      final pMs = (p == Pulse.long ? longMs : shortMs).toDouble();
-      _block(
-        canvas,
-        t * pxPerMs,
-        pMs * pxPerMs,
-        h,
-        p == Pulse.long ? h : h * 0.55,
-        p == Pulse.long ? _neonCyan : _neonAmber,
-        isPast: elapsedMs >= t + pMs,
-        isActive: elapsedMs >= t && elapsedMs < t + pMs,
-      );
-      t += pMs + gapMs;
+      final j = results[i];
+      final isHit = j != null && j != Judgement.miss;
+      final isActive =
+          !isHit &&
+          gameMs >= note.hitTimeMs &&
+          gameMs < note.hitTimeMs + note.durationMs;
+      final isPast =
+          isHit || (!isActive && gameMs >= note.hitTimeMs + note.durationMs);
+
+      _block(canvas, x, w, h, bh, color, isPast: isPast, isActive: isActive);
     }
 
     // Playhead
-    final headX = (elapsedMs / totalMs * size.width).clamp(0.0, size.width);
+    final headX = (gameMs / totalMs * size.width).clamp(0.0, size.width);
     canvas.drawLine(
       Offset(headX, 0),
       Offset(headX, h),
@@ -469,7 +465,7 @@ class _WaveformPainter extends CustomPainter {
     final rect = Rect.fromLTWH(
       x + 1,
       containerH - blockH,
-      (w - 2).clamp(1.0, double.infinity),
+      max(0.0, w - 2),
       blockH,
     );
     if (!isPast && !isActive) {
@@ -495,5 +491,5 @@ class _WaveformPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _WaveformPainter old) =>
-      elapsedMs != old.elapsedMs;
+      gameMs != old.gameMs || results.length != old.results.length;
 }
