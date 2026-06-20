@@ -95,7 +95,10 @@ class _RootShellState extends State<_RootShell> {
               onDestinationSelected: _onTabChanged,
               destinations: const [
                 NavigationDestination(icon: Icon(Icons.vibration), label: '演奏'),
-                NavigationDestination(icon: Icon(Icons.sports_esports), label: 'ゲーム'),
+                NavigationDestination(
+                  icon: Icon(Icons.sports_esports),
+                  label: 'ゲーム',
+                ),
               ],
             ),
     );

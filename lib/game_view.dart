@@ -82,7 +82,10 @@ class _GameViewState extends State<GameView>
   }
 
   Future<void> _fetchUrls() async {
-    setState(() { _loadingUrls = true; _urlError = null; });
+    setState(() {
+      _loadingUrls = true;
+      _urlError = null;
+    });
     try {
       final entries = await _service.fetchUrls();
       _pageController?.dispose();
@@ -97,7 +100,10 @@ class _GameViewState extends State<GameView>
         }
       });
     } catch (e) {
-      setState(() { _loadingUrls = false; _urlError = '読込失敗'; });
+      setState(() {
+        _loadingUrls = false;
+        _urlError = '読込失敗';
+      });
     }
   }
 
@@ -221,7 +227,9 @@ class _GameViewState extends State<GameView>
                   top: 4,
                   left: 0,
                   right: 0,
-                  child: IgnorePointer(child: Center(child: _buildComboDisplay())),
+                  child: IgnorePointer(
+                    child: Center(child: _buildComboDisplay()),
+                  ),
                 ),
               // Title — top-right (only when not playing, so it doesn't distract)
               if (!_started)
@@ -242,11 +250,7 @@ class _GameViewState extends State<GameView>
                 ),
               // Back button — top-left, only when not playing
               if (!_started && widget.onNavigateBack != null)
-                Positioned(
-                  top: 4,
-                  left: 4,
-                  child: _buildBackButton(),
-                ),
+                Positioned(top: 4, left: 4, child: _buildBackButton()),
               // URL selector — fills space between header and play button
               if (!_started)
                 Positioned(
@@ -264,11 +268,7 @@ class _GameViewState extends State<GameView>
                   child: Center(child: _buildPlayButton()),
                 )
               else
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: _buildPlayButton(),
-                ),
+                Positioned(top: 8, right: 8, child: _buildPlayButton()),
             ],
           ),
         ),
@@ -287,11 +287,17 @@ class _GameViewState extends State<GameView>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(_urlError!, style: const TextStyle(color: _mutedColor, fontSize: 12)),
+            Text(
+              _urlError!,
+              style: const TextStyle(color: _mutedColor, fontSize: 12),
+            ),
             const SizedBox(height: 8),
             TextButton(
               onPressed: _fetchUrls,
-              child: const Text('再試行', style: TextStyle(color: _neonCyan, fontSize: 12)),
+              child: const Text(
+                '再試行',
+                style: TextStyle(color: _neonCyan, fontSize: 12),
+              ),
             ),
           ],
         ),
@@ -354,7 +360,9 @@ class _GameViewState extends State<GameView>
       duration: const Duration(milliseconds: 220),
       margin: EdgeInsets.symmetric(horizontal: 8, vertical: selected ? 2 : 10),
       decoration: BoxDecoration(
-        color: selected ? _neonPurple.withAlpha(22) : Colors.black.withAlpha(90),
+        color: selected
+            ? _neonPurple.withAlpha(22)
+            : Colors.black.withAlpha(90),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: selected ? _neonPurple : _lineColor,
@@ -392,7 +400,9 @@ class _GameViewState extends State<GameView>
           Text(
             entry.url,
             style: TextStyle(
-              color: selected ? Colors.white.withAlpha(215) : Colors.white.withAlpha(90),
+              color: selected
+                  ? Colors.white.withAlpha(215)
+                  : Colors.white.withAlpha(90),
               fontSize: 12,
               letterSpacing: 0.2,
             ),
@@ -403,7 +413,6 @@ class _GameViewState extends State<GameView>
       ),
     );
   }
-
 
   Widget _buildBackButton() {
     return GestureDetector(
@@ -421,7 +430,11 @@ class _GameViewState extends State<GameView>
             Icon(Icons.chevron_left, color: _neonPurple, size: 14),
             Text(
               '演奏',
-              style: TextStyle(color: _neonPurple, fontSize: 10, letterSpacing: 1),
+              style: TextStyle(
+                color: _neonPurple,
+                fontSize: 10,
+                letterSpacing: 1,
+              ),
             ),
           ],
         ),
@@ -466,7 +479,10 @@ class _GameViewState extends State<GameView>
       return OutlinedButton.icon(
         onPressed: _stop,
         icon: const Icon(Icons.stop, color: _neonCyan, size: 14),
-        label: const Text('停止', style: TextStyle(color: _neonCyan, fontSize: 11)),
+        label: const Text(
+          '停止',
+          style: TextStyle(color: _neonCyan, fontSize: 11),
+        ),
         style: OutlinedButton.styleFrom(
           side: const BorderSide(color: _neonCyan),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -498,11 +514,10 @@ class _BgPainter extends CustomPainter {
     canvas.drawRect(
       Rect.fromLTWH(0, 0, size.width, size.height),
       Paint()
-        ..shader = ui.Gradient.linear(
-          Offset.zero,
-          Offset(0, size.height),
-          [const Color(0xFF130025), const Color(0xFF04000E)],
-        ),
+        ..shader = ui.Gradient.linear(Offset.zero, Offset(0, size.height), [
+          const Color(0xFF130025),
+          const Color(0xFF04000E),
+        ]),
     );
     // Purple bloom at top (notes spawn from here)
     canvas.drawRect(
@@ -626,11 +641,10 @@ class _GamePainter extends CustomPainter {
     canvas.drawRect(
       Rect.fromLTWH(0, 0, size.width, judgeY * 0.45),
       Paint()
-        ..shader = ui.Gradient.linear(
-          Offset.zero,
-          Offset(0, judgeY * 0.45),
-          [Colors.black.withAlpha(100), Colors.transparent],
-        ),
+        ..shader = ui.Gradient.linear(Offset.zero, Offset(0, judgeY * 0.45), [
+          Colors.black.withAlpha(100),
+          Colors.transparent,
+        ]),
     );
   }
 
@@ -668,7 +682,10 @@ class _GamePainter extends CustomPainter {
       final p = slotProgress[k];
       final padW = laneW * 0.78;
       final padRect = Rect.fromLTWH(laneX - padW / 2, judgeY + 4, padW, padH);
-      final padRR = RRect.fromRectAndRadius(padRect, Radius.circular(padW * 0.12));
+      final padRR = RRect.fromRectAndRadius(
+        padRect,
+        Radius.circular(padW * 0.12),
+      );
 
       if (p > 0) {
         canvas.drawRRect(
@@ -678,7 +695,10 @@ class _GamePainter extends CustomPainter {
             ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
         );
       }
-      canvas.drawRRect(padRR, Paint()..color = _neonCyan.withAlpha((18 + p * 85).toInt()));
+      canvas.drawRRect(
+        padRR,
+        Paint()..color = _neonCyan.withAlpha((18 + p * 85).toInt()),
+      );
       canvas.drawRRect(
         padRR,
         Paint()
@@ -699,12 +719,25 @@ class _GamePainter extends CustomPainter {
       // Hold note that was tapped: drain animation (shrinks toward tail).
       final tapMs = holdStartMs[i];
       if (tapMs != null) {
-        final holdProgress = ((displayMs - tapMs) / note.durationMs).clamp(0.0, 1.0);
+        final holdProgress = ((displayMs - tapMs) / note.durationMs).clamp(
+          0.0,
+          1.0,
+        );
         if (holdProgress >= 1.0) continue; // fully drained
         final lane = _toLane(note.angle);
         final headLaneW = _perspLaneW(1.0, size.width);
-        final remainingFrac = (1.0 - holdProgress) * (note.durationMs / travelMs);
-        _drawHoldNote(canvas, lane, headLaneW, judgeY, remainingFrac, judgeY, 1.0, size.width);
+        final remainingFrac =
+            (1.0 - holdProgress) * (note.durationMs / travelMs);
+        _drawHoldNote(
+          canvas,
+          lane,
+          headLaneW,
+          judgeY,
+          remainingFrac,
+          judgeY,
+          1.0,
+          size.width,
+        );
         continue;
       }
 
@@ -732,7 +765,16 @@ class _GamePainter extends CustomPainter {
         _drawTapNote(canvas, laneX, laneW, noteY, opacity);
       } else {
         final barLenFraction = note.durationMs / travelMs;
-        _drawHoldNote(canvas, lane, laneW, noteY, barLenFraction, judgeY, opacity, size.width);
+        _drawHoldNote(
+          canvas,
+          lane,
+          laneW,
+          noteY,
+          barLenFraction,
+          judgeY,
+          opacity,
+          size.width,
+        );
       }
     }
   }
@@ -747,7 +789,12 @@ class _GamePainter extends CustomPainter {
   ) {
     const noteH = 10.0;
     final noteW = laneW * 0.86;
-    final rect = Rect.fromLTWH(laneX - noteW / 2, noteY - noteH / 2, noteW, noteH);
+    final rect = Rect.fromLTWH(
+      laneX - noteW / 2,
+      noteY - noteH / 2,
+      noteW,
+      noteH,
+    );
     final rr = RRect.fromRectAndRadius(rect, const Radius.circular(5));
 
     canvas.drawRRect(
@@ -756,7 +803,10 @@ class _GamePainter extends CustomPainter {
         ..color = _neonAmber.withAlpha((opacity * 65).toInt())
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
     );
-    canvas.drawRRect(rr, Paint()..color = _neonAmber.withAlpha((opacity * 255).toInt()));
+    canvas.drawRRect(
+      rr,
+      Paint()..color = _neonAmber.withAlpha((opacity * 255).toInt()),
+    );
     canvas.drawRRect(
       rr,
       Paint()
