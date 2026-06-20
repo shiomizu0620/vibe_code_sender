@@ -1000,10 +1000,7 @@ class _SenderPageState extends State<SenderPage> {
                       const SizedBox(height: 28),
                       _buildButtons(context),
                       const SizedBox(height: 8),
-                      TextButton(
-                        onPressed: _reset,
-                        child: const Text('リセット'),
-                      ),
+                      TextButton(onPressed: _reset, child: const Text('リセット')),
                     ],
                   ),
                 ),
