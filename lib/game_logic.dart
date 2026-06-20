@@ -242,6 +242,13 @@ class GameController extends ChangeNotifier {
         _results[_cursor] = Judgement.perfect; // 機械発火は常に正確
         _cursor++;
       }
+    } else {
+      // Hybrid: auto-advance notes that passed the good window without being tapped.
+      while (_cursor < _notes.length &&
+          elapsedMs - _notes[_cursor].hitTimeMs > goodWindowMs) {
+        _results[_cursor] = Judgement.miss;
+        _cursor++;
+      }
     }
 
     if (elapsedMs >= chartEndMs) {

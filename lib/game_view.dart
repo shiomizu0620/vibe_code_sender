@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import 'constants.dart';
+import 'encoder.dart';
 import 'game_logic.dart';
 import 'supabase_service.dart';
 import 'vibrator_service.dart';
@@ -19,10 +20,15 @@ const _lineColor = Color(0xFF281545);
 const _mutedColor = Color(0xFF7A6E9A);
 
 // ── timing ────────────────────────────────────────────────────────────
-const int _travelMs = (preambleOnMs + preambleOffMs) * preambleRepeat; // 1800
+// Fixed protocol timing offset. Notes always reach the judgment line at
+// displayMs = hitTimeMs + _judgeOffsetMs, regardless of visual speed.
+const int _judgeOffsetMs = (preambleOnMs + preambleOffMs) * preambleRepeat; // 1800
 const double _exitMs = 500;
 const int _demoId = 42; // fallback when Supabase is unavailable
 const int _effectDurationMs = 600;
+
+// ── URL selector mode ────────────────────────────────────────────────
+enum _SelectorMode { list, direct }
 
 // ── Judgment popup data ───────────────────────────────────────────────
 class _JudgmentEffect {
@@ -70,6 +76,16 @@ class _GameViewState extends State<GameView>
   bool _loadingUrls = false;
   String? _urlError;
   PageController? _pageController;
+  _SelectorMode _selectorMode = _SelectorMode.list;
+  final TextEditingController _directUrlCtrl = TextEditingController();
+  String? _directUrlError;
+  bool _directUrlReady = false;
+  bool _listUseX1 = false; // false=IDモード(9音) / true=X1モード(長い譜面)
+  bool _urlConfirmed = false; // Step2(形式選択)に進んだか
+  double _noteSpeed = 4.0;
+
+  // Visual travel time in ms. Speed 4.0 = 1800ms (protocol default).
+  int get _travelMs => (7200.0 / _noteSpeed).round();
 
   @override
   void initState() {
@@ -99,7 +115,7 @@ class _GameViewState extends State<GameView>
         _pageController = ctrl;
         if (_selectedEntry == null && entries.isNotEmpty) {
           _selectedEntry = entries.first;
-          _gc.load(_selectedEntry!.id);
+          _loadSelectedEntry(_selectedEntry!);
         }
       });
     } catch (e) {
@@ -117,6 +133,7 @@ class _GameViewState extends State<GameView>
     _ticker.dispose();
     _gc.dispose();
     _pageController?.dispose();
+    _directUrlCtrl.dispose();
     super.dispose();
   }
 
@@ -132,15 +149,28 @@ class _GameViewState extends State<GameView>
       (idx, tapMs) => ms - tapMs > _gc.notes[idx].durationMs,
     );
     setState(() => _displayMs = ms);
-    final gameMs = _displayMs - _travelMs;
-    if (gameMs >= 0) _gc.tick(gameMs);
+    final gameMs = _displayMs - _judgeOffsetMs;
+    if (gameMs >= 0) {
+      final cursorBefore = _gc.cursor;
+      _gc.tick(gameMs);
+      for (var i = cursorBefore; i < _gc.cursor; i++) {
+        if (_gc.results[i] == Judgement.miss) {
+          _effects.add(_JudgmentEffect(
+            judgement: Judgement.miss,
+            angle: _gc.notes[i].angle,
+            startMs: ms,
+          ));
+          _combo = 0;
+        }
+      }
+    }
 
     // Stop only after the last note has fully exited past the judgment line.
     if (_gc.state == GameState.finished && _started) {
       final notes = _gc.notes;
       final lastExitMs = notes.isEmpty
           ? 0
-          : notes.last.hitTimeMs + _travelMs + _exitMs.toInt();
+          : notes.last.hitTimeMs + _judgeOffsetMs + _exitMs.toInt();
       if (ms >= lastExitMs) {
         _ticker.stop();
         setState(() {
@@ -157,10 +187,19 @@ class _GameViewState extends State<GameView>
     _gc.start();
     _gc.skipPreamble();
     _ticker.start();
-    // Fire preamble vibrations manually during countdown
-    _vibrator.play(<int>[0, preambleOnMs]);
+    // Fire preamble at judgeOffsetMs so it ends just before the first data
+    // note reaches the judgment line (gap = preambleOffMs = 200ms ✓).
+    // This delay is fixed regardless of visual note speed.
     Future.delayed(
-      const Duration(milliseconds: preambleOnMs + preambleOffMs),
+      const Duration(milliseconds: _judgeOffsetMs),
+      () {
+        if (mounted && _countdownRemaining != null) {
+          _vibrator.play(<int>[0, preambleOnMs]);
+        }
+      },
+    );
+    Future.delayed(
+      const Duration(milliseconds: _judgeOffsetMs + preambleOnMs + preambleOffMs),
       () {
         if (mounted && _countdownRemaining != null) {
           _vibrator.play(<int>[0, preambleOnMs]);
@@ -214,7 +253,7 @@ class _GameViewState extends State<GameView>
     final screenH = context.size?.height ?? double.infinity;
     if (details.localPosition.dy < screenH * 0.80) return;
     if (!_started || _gc.state != GameState.playing) return;
-    final gameMs = _displayMs - _travelMs;
+    final gameMs = _displayMs - _judgeOffsetMs;
     if (gameMs < 0) return;
     final cursor = _gc.cursor;
     if (cursor >= _gc.notes.length) return;
@@ -250,21 +289,19 @@ class _GameViewState extends State<GameView>
           child: Stack(
             children: [
               Positioned.fill(child: CustomPaint(painter: _BgPainter())),
-              Positioned.fill(
-                child: CustomPaint(
-                  painter: _GamePainter(
-                    // Show non-preamble notes during countdown preview and play
-                    notes: (_started || _countdownRemaining != null)
-                        ? _gc.notes.where((n) => !n.isPreamble).toList()
-                        : const [],
-                    results: _gc.results,
-                    effects: List.unmodifiable(_effects),
-                    holdStartMs: Map.unmodifiable(_holdStartMs),
-                    displayMs: _displayMs.toDouble(),
-                    travelMs: _travelMs.toDouble(),
+              if (_started || _countdownRemaining != null)
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: _GamePainter(
+                      notes: _gc.notes.toList(),
+                      results: _gc.results,
+                      effects: List.unmodifiable(_effects),
+                      holdStartMs: Map.unmodifiable(_holdStartMs),
+                      displayMs: _displayMs.toDouble(),
+                      travelMs: _travelMs.toDouble(),
+                    ),
                   ),
                 ),
-              ),
               // Countdown overlay
               if (_countdownRemaining != null)
                 Positioned.fill(child: IgnorePointer(child: _buildCountdown())),
@@ -291,38 +328,42 @@ class _GameViewState extends State<GameView>
               // Pre-game UI (hidden during countdown or result)
               if (!_started &&
                   _countdownRemaining == null &&
-                  _lastResults == null) ...[
-                const Positioned(
-                  top: 8,
-                  right: 12,
-                  child: IgnorePointer(
-                    child: Text(
-                      'V I B E C O D E',
-                      style: TextStyle(
-                        color: _neonPurple,
-                        fontSize: 9,
-                        letterSpacing: 4,
-                        fontWeight: FontWeight.w700,
+                  _lastResults == null)
+                Positioned.fill(
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(4, 4, 12, 0),
+                        child: Row(
+                          children: [
+                            if (widget.onNavigateBack != null)
+                              _buildBackButton(),
+                            const Spacer(),
+                            const Text(
+                              'V I B E C O D E',
+                              style: TextStyle(
+                                color: _neonPurple,
+                                fontSize: 9,
+                                letterSpacing: 4,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                          child: _buildUrlSelector(),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+                        child: _buildPlayButton(),
+                      ),
+                    ],
                   ),
                 ),
-                if (widget.onNavigateBack != null)
-                  Positioned(top: 4, left: 4, child: _buildBackButton()),
-                Positioned(
-                  top: 30,
-                  left: 16,
-                  right: 16,
-                  bottom: 50,
-                  child: _buildUrlSelector(),
-                ),
-                Positioned(
-                  bottom: 10,
-                  left: 0,
-                  right: 0,
-                  child: Center(child: _buildPlayButton()),
-                ),
-              ],
               // Result overlay — after natural game end
               if (!_started && _lastResults != null)
                 Positioned.fill(child: _buildResultOverlay()),
@@ -334,6 +375,188 @@ class _GameViewState extends State<GameView>
   }
 
   Widget _buildUrlSelector() {
+    return Column(
+      children: [
+        _buildSelectorToggle(),
+        const SizedBox(height: 8),
+        Expanded(
+          child: _selectorMode == _SelectorMode.list
+              ? _buildListContent()
+              : _buildDirectContent(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSelectorToggle() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _buildModeTab('一覧', _SelectorMode.list),
+        _buildModeTab('URL直接', _SelectorMode.direct),
+      ],
+    );
+  }
+
+  Widget _buildModeTab(String label, _SelectorMode mode) {
+    final selected = _selectorMode == mode;
+    final isLeft = mode == _SelectorMode.list;
+    return GestureDetector(
+      onTap: () => _switchSelectorMode(mode),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 5),
+        decoration: BoxDecoration(
+          color: selected ? _neonPurple.withAlpha(40) : Colors.transparent,
+          border: Border.all(
+            color: selected ? _neonPurple : _lineColor,
+          ),
+          borderRadius: BorderRadius.only(
+            topLeft: isLeft ? const Radius.circular(6) : Radius.zero,
+            bottomLeft: isLeft ? const Radius.circular(6) : Radius.zero,
+            topRight: isLeft ? Radius.zero : const Radius.circular(6),
+            bottomRight: isLeft ? Radius.zero : const Radius.circular(6),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? _neonPurple : _mutedColor,
+            fontSize: 11,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+            letterSpacing: 0.5,
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _setNoteSpeed(double speed) {
+    setState(() => _noteSpeed = speed.clamp(1.0, 10.0));
+  }
+
+  void _loadSelectedEntry(UrlEntry entry) {
+    if (_listUseX1) {
+      try {
+        _gc.loadPulses(encodeUrl(entry.url));
+        return;
+      } catch (_) {}
+    }
+    _gc.load(entry.id);
+  }
+
+  void _setListEncoding({required bool useX1}) {
+    if (_listUseX1 == useX1) return;
+    setState(() => _listUseX1 = useX1);
+    if (_selectedEntry != null) _loadSelectedEntry(_selectedEntry!);
+  }
+
+  bool get _canPlay => _selectorMode == _SelectorMode.list
+      ? _selectedEntry != null
+      : _directUrlReady;
+
+  void _switchSelectorMode(_SelectorMode mode) {
+    if (_selectorMode == mode) return;
+    setState(() {
+      _selectorMode = mode;
+      _urlConfirmed = false;
+      _directUrlError = null;
+      if (mode == _SelectorMode.list && _selectedEntry != null) {
+        _loadSelectedEntry(_selectedEntry!);
+        _directUrlReady = false;
+      }
+    });
+  }
+
+  void _loadDirectUrl() {
+    final url = _directUrlCtrl.text.trim();
+    if (url.isEmpty) {
+      setState(() => _directUrlError = 'URLを入力してください');
+      return;
+    }
+    try {
+      final pulses = encodeUrl(url);
+      _gc.loadPulses(pulses);
+      setState(() {
+        _directUrlError = null;
+        _directUrlReady = true;
+      });
+    } on FormatException {
+      setState(
+        () => _directUrlError = 'X1で送れない文字が含まれます（小文字URLのみ）',
+      );
+    } on ArgumentError catch (e) {
+      setState(() => _directUrlError = 'X1で送れません: ${e.message}');
+    }
+  }
+
+  Widget _buildSpeedControl() {
+    final canDec = _noteSpeed > 1.0;
+    final canInc = _noteSpeed < 10.0;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'ノーツ速度',
+          style: TextStyle(
+            color: _mutedColor,
+            fontSize: 10,
+            letterSpacing: 1,
+          ),
+        ),
+        const SizedBox(width: 10),
+        _speedBtn(
+          Icons.remove,
+          canDec ? () => _setNoteSpeed(_noteSpeed - 0.5) : null,
+        ),
+        const SizedBox(width: 6),
+        SizedBox(
+          width: 36,
+          child: Text(
+            _noteSpeed == _noteSpeed.truncateToDouble()
+                ? '${_noteSpeed.toInt()}.0'
+                : _noteSpeed.toStringAsFixed(1),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        _speedBtn(
+          Icons.add,
+          canInc ? () => _setNoteSpeed(_noteSpeed + 0.5) : null,
+        ),
+      ],
+    );
+  }
+
+  Widget _speedBtn(IconData icon, VoidCallback? onTap) {
+    final active = onTap != null;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 24,
+        height: 24,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: active ? _neonPurple : _lineColor,
+          ),
+          color: active ? _neonPurple.withAlpha(30) : Colors.transparent,
+        ),
+        child: Icon(
+          icon,
+          size: 14,
+          color: active ? _neonPurple : _lineColor,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildListContent() {
     if (_loadingUrls) {
       return const Center(
         child: CircularProgressIndicator(color: _neonCyan, strokeWidth: 2),
@@ -370,51 +593,253 @@ class _GameViewState extends State<GameView>
       );
     }
 
-    final ctrl = _pageController!;
-    return Column(
-      children: [
-        Expanded(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final cardH = (constraints.maxHeight - 8).clamp(60.0, 150.0);
-              return Center(
-                child: SizedBox(
-                  height: cardH,
-                  child: NotificationListener<ScrollEndNotification>(
-                    onNotification: (_) {
-                      final i = ctrl.page?.round();
-                      if (i != null && i >= 0 && i < _urls.length) {
-                        final entry = _urls[i];
-                        if (entry.id != _selectedEntry?.id) {
-                          setState(() {
-                            _selectedEntry = entry;
-                            _gc.load(entry.id);
-                          });
-                        }
-                      }
-                      return false;
-                    },
-                    child: PageView.builder(
-                      controller: ctrl,
-                      itemCount: _urls.length,
-                      itemBuilder: (context, i) {
-                        final selected = _selectedEntry?.id == _urls[i].id;
-                        return _buildUrlCard(_urls[i], selected);
-                      },
-                    ),
+    // Step2: URL確定済み → 形式選択
+    if (_urlConfirmed && _selectedEntry != null) {
+      return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // 戻るリンク + URL表示
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                GestureDetector(
+                  onTap: () => setState(() => _urlConfirmed = false),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.arrow_back_ios, color: _mutedColor, size: 11),
+                      const SizedBox(width: 2),
+                      Text(
+                        '選び直す',
+                        style: TextStyle(color: _mutedColor, fontSize: 10),
+                      ),
+                    ],
                   ),
                 ),
-              );
-            },
+                const SizedBox(width: 8),
+                Icon(Icons.link, color: _mutedColor, size: 11),
+                const SizedBox(width: 3),
+                Flexible(
+                  child: Text(
+                    _selectedEntry!.url,
+                    style: const TextStyle(color: _mutedColor, fontSize: 10),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
           ),
+          const SizedBox(height: 16),
+          _buildEncodingToggle(),
+          const SizedBox(height: 16),
+          _buildSpeedControl(),
+        ],
+      );
+    }
+
+    // Step1: URLを選ぶ → カルーセル
+    final ctrl = _pageController!;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cardH = constraints.maxHeight.clamp(60.0, 150.0);
+        return Center(
+          child: SizedBox(
+            height: cardH,
+            child: PageView.builder(
+              controller: ctrl,
+              itemCount: _urls.length,
+              onPageChanged: (i) {
+                final entry = _urls[i];
+                if (entry.id != _selectedEntry?.id) {
+                  setState(() {
+                    _selectedEntry = entry;
+                    _urlConfirmed = false;
+                  });
+                  _loadSelectedEntry(entry);
+                }
+              },
+              itemBuilder: (context, i) {
+                final selected = _selectedEntry?.id == _urls[i].id;
+                return _buildUrlCard(_urls[i], selected);
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildEncodingToggle() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        children: [
+          Expanded(child: _buildEncTab('ID', subtitle: '9打 · 固定長', useX1: false)),
+          const SizedBox(width: 12),
+          Expanded(child: _buildEncTab('X1', subtitle: '長譜面 · URL直接', useX1: true)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEncTab(String label, {required String subtitle, required bool useX1}) {
+    final selected = _listUseX1 == useX1;
+    return GestureDetector(
+      onTap: () => _setListEncoding(useX1: useX1),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+        decoration: BoxDecoration(
+          color: selected ? _neonCyan.withAlpha(38) : Colors.black.withAlpha(60),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? _neonCyan : _lineColor,
+            width: selected ? 2 : 1,
+          ),
+          boxShadow: selected
+              ? [BoxShadow(color: _neonCyan.withAlpha(50), blurRadius: 14)]
+              : null,
         ),
-      ],
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? _neonCyan : Colors.white.withAlpha(200),
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: TextStyle(
+                color: selected ? _neonCyan.withAlpha(190) : _mutedColor,
+                fontSize: 10,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDirectContent() {
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.black.withAlpha(90),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: _directUrlReady ? _neonCyan : _lineColor,
+            width: _directUrlReady ? 1.5 : 1,
+          ),
+          boxShadow: _directUrlReady
+              ? [BoxShadow(color: _neonCyan.withAlpha(30), blurRadius: 14)]
+              : null,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _directUrlCtrl,
+              keyboardType: TextInputType.url,
+              autocorrect: false,
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+              decoration: InputDecoration(
+                hintText: 'github.com',
+                hintStyle: TextStyle(color: _mutedColor),
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: _lineColor),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderSide: const BorderSide(color: _neonCyan),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                errorBorder: OutlineInputBorder(
+                  borderSide: const BorderSide(color: Colors.redAccent),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                focusedErrorBorder: OutlineInputBorder(
+                  borderSide: const BorderSide(color: Colors.redAccent),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                errorText: _directUrlError,
+                errorStyle: const TextStyle(
+                  color: Colors.redAccent,
+                  fontSize: 10,
+                ),
+              ),
+              onChanged: (_) {
+                if (_directUrlError != null || _directUrlReady) {
+                  setState(() {
+                    _directUrlError = null;
+                    _directUrlReady = false;
+                  });
+                }
+              },
+              onSubmitted: (_) => _loadDirectUrl(),
+            ),
+            if (_directUrlReady) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.check_circle_outline,
+                    color: _neonCyan,
+                    size: 12,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      _directUrlCtrl.text.trim(),
+                      style: TextStyle(
+                        color: _neonCyan.withAlpha(200),
+                        fontSize: 10,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 10),
+            OutlinedButton(
+              onPressed: _loadDirectUrl,
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: _neonPurple.withAlpha(200)),
+                foregroundColor: _neonPurple,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 6,
+                ),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: const Text('読み込む', style: TextStyle(fontSize: 12)),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
   Widget _buildUrlCard(UrlEntry entry, bool selected) {
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
+      duration: const Duration(milliseconds: 80),
       margin: EdgeInsets.symmetric(horizontal: 8, vertical: selected ? 2 : 10),
       decoration: BoxDecoration(
         color: selected
@@ -725,6 +1150,8 @@ class _GameViewState extends State<GameView>
     );
   }
 
+  void _confirmUrl() => setState(() => _urlConfirmed = true);
+
   Widget _buildPlayButton() {
     if (_started || _countdownRemaining != null) {
       final label = _countdownRemaining != null ? 'キャンセル' : '停止';
@@ -743,17 +1170,48 @@ class _GameViewState extends State<GameView>
         ),
       );
     }
+    // Step1: URLを選ぶ（一覧モードで未確定）
+    if (_selectorMode == _SelectorMode.list && !_urlConfirmed) {
+      final ok = _selectedEntry != null;
+      return ElevatedButton.icon(
+        onPressed: ok ? _confirmUrl : null,
+        icon: const Icon(Icons.check, size: 20),
+        label: const Text(
+          'URLを選択',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: ok ? _neonCyan.withAlpha(80) : Colors.white.withAlpha(10),
+          foregroundColor: ok ? Colors.white : _mutedColor,
+          side: BorderSide(color: ok ? _neonCyan : _lineColor, width: 1.5),
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+    // Step2 or direct URL: 演奏開始
     return ElevatedButton.icon(
-      onPressed: _selectedEntry == null ? null : _startPressed,
-      icon: const Icon(Icons.play_arrow, size: 16),
-      label: const Text('演奏開始', style: TextStyle(fontSize: 13)),
+      onPressed: _canPlay ? _startPressed : null,
+      icon: const Icon(Icons.play_arrow, size: 20),
+      label: const Text(
+        '演奏開始',
+        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+      ),
       style: ElevatedButton.styleFrom(
-        backgroundColor: _neonPurple.withAlpha(50),
-        foregroundColor: _neonPurple,
-        side: const BorderSide(color: _neonPurple),
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-        minimumSize: Size.zero,
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        backgroundColor: _canPlay
+            ? _neonPurple.withAlpha(80)
+            : Colors.white.withAlpha(10),
+        foregroundColor: _canPlay ? Colors.white : _mutedColor,
+        side: BorderSide(
+          color: _canPlay ? _neonPurple : _lineColor,
+          width: 1.5,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
       ),
     );
   }
@@ -996,7 +1454,9 @@ class _GamePainter extends CustomPainter {
       final j = results[i];
       if (j != null && j != Judgement.miss) continue;
 
-      final spawnMs = note.hitTimeMs.toDouble();
+      // Note spawns early enough to reach the judgment line at
+      // displayMs = hitTimeMs + _judgeOffsetMs, regardless of travelMs.
+      final spawnMs = note.hitTimeMs + _judgeOffsetMs - travelMs;
       if (displayMs < spawnMs) continue;
 
       final progress = (displayMs - spawnMs) / travelMs;
@@ -1142,7 +1602,7 @@ class _GamePainter extends CustomPainter {
     for (var i = 0; i < notes.length; i++) {
       final j = results[i];
       if (j != null && j != Judgement.miss) continue;
-      final spawnMs = notes[i].hitTimeMs.toDouble();
+      final spawnMs = notes[i].hitTimeMs + _judgeOffsetMs - travelMs;
       if (displayMs < spawnMs) continue;
       final rp = (displayMs - spawnMs) / travelMs;
       if (rp <= 0 || rp >= 1.0) continue;
