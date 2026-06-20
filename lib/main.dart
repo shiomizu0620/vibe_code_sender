@@ -105,7 +105,13 @@ class _UrlListPageState extends State<UrlListPage> {
   }
 
   void _refresh() {
-    setState(() => _future = _service.fetchUrls());
+    setState(() {
+      _future = _service.fetchUrls().catchError((Object e, StackTrace st) {
+        // 詳細はログへ。画面には FutureBuilder 側で定型文を出す。
+        debugPrint('URL一覧の取得に失敗: $e\n$st');
+        Error.throwWithStackTrace(e, st);
+      });
+    });
   }
 
   Future<void> _register() async {
@@ -120,11 +126,12 @@ class _UrlListPageState extends State<UrlListPage> {
         context,
       ).showSnackBar(SnackBar(content: Text('登録しました → id: $id')));
       _refresh();
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('URL登録に失敗: $e\n$st');
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('登録に失敗しました: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('登録に失敗しました。通信状況を確認して再度お試しください。')),
+      );
     } finally {
       if (mounted) setState(() => _registering = false);
     }
@@ -193,10 +200,10 @@ class _UrlListPageState extends State<UrlListPage> {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (snapshot.hasError) {
-                  return Center(
+                  return const Center(
                     child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text('読み込みに失敗しました: ${snapshot.error}'),
+                      padding: EdgeInsets.all(24),
+                      child: Text('読み込みに失敗しました。通信状況を確認してください。'),
                     ),
                   );
                 }
