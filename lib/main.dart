@@ -1,6 +1,7 @@
 import 'package:device_preview/device_preview.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'constants.dart';
@@ -77,22 +78,48 @@ class _RootShell extends StatefulWidget {
 class _RootShellState extends State<_RootShell> {
   int _tab = 0;
 
+  void _onTabChanged(int i) {
+    setState(() => _tab = i);
+    if (i == 2) {
+      // ゲームタブ（index 2）のみ横向き。
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    } else {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+      ]);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: IndexedStack(
         index: _tab,
-        children: const [UrlListPage(), X1DirectPage(), GameView()],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (i) => setState(() => _tab = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.vibration), label: '演奏'),
-          NavigationDestination(icon: Icon(Icons.link), label: 'URL直接'),
-          NavigationDestination(icon: Icon(Icons.sports_esports), label: 'ゲーム'),
+        children: [
+          const UrlListPage(),
+          const X1DirectPage(),
+          GameView(onNavigateBack: () => _onTabChanged(0)),
         ],
       ),
+      // ゲームタブ（index 2）ではナビバーを隠す（F13: 全画面ゲーム）。
+      bottomNavigationBar: _tab == 2
+          ? null
+          : NavigationBar(
+              selectedIndex: _tab,
+              onDestinationSelected: _onTabChanged,
+              destinations: const [
+                NavigationDestination(icon: Icon(Icons.vibration), label: '演奏'),
+                NavigationDestination(icon: Icon(Icons.link), label: 'URL直接'),
+                NavigationDestination(
+                  icon: Icon(Icons.sports_esports),
+                  label: 'ゲーム',
+                ),
+              ],
+            ),
     );
   }
 }
