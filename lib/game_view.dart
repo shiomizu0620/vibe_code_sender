@@ -92,7 +92,9 @@ class _GameViewState extends State<GameView>
   // GameController judges against the current cursor note and fires vibration.
   void _onTapDown(TapDownDetails _) {
     if (!_started || _gc.state != GameState.playing) return;
-    _gc.onInputDown(max(0, _displayMs - _travelMs));
+    final gameMs = _displayMs - _travelMs;
+    if (gameMs < 0) return; // ignore taps during visual countdown
+    _gc.onInputDown(gameMs);
   }
 
   @override
