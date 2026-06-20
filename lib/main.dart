@@ -705,49 +705,53 @@ class _SenderPageState extends State<SenderPage> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: <Widget>[
                   if (hasVibrator == false)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 16),
-                  child: Text(
-                    'この端末は振動に対応していません。\n'
-                    '（エミュレータ／シミュレータでは物理的な振動は出ません）',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.redAccent),
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 16),
+                      child: Text(
+                        'この端末は振動に対応していません。\n'
+                        '（エミュレータ／シミュレータでは物理的な振動は出ません）',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.redAccent),
+                      ),
+                    ),
+                  if (widget.url != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        widget.url!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  if (!widget.isUrlOnly) ...[
+                    Text(
+                      'id: ${widget.id}',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    _buildModeSelector(context),
+                  ] else
+                    Text(
+                      'URL直接モード (X1)',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  const SizedBox(height: 16),
+                  ScoreView(
+                    pulses: _pulses,
+                    cursor: _cursor,
+                    mistakes: _mistakes,
                   ),
-                ),
-              if (widget.url != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    widget.url!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
+                  const SizedBox(height: 8),
+                  _StatusLine(
+                    phase: _phase,
+                    cursor: _cursor,
+                    total: _pulses.length,
+                    mistakeCount: _mistakes.length,
                   ),
-                ),
-              if (!widget.isUrlOnly) ...[
-                Text(
-                  'id: ${widget.id}',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 12),
-                _buildModeSelector(context),
-              ] else
-                Text(
-                  'URL直接モード (X1)',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-              const SizedBox(height: 16),
-              ScoreView(pulses: _pulses, cursor: _cursor, mistakes: _mistakes),
-              const SizedBox(height: 8),
-              _StatusLine(
-                phase: _phase,
-                cursor: _cursor,
-                total: _pulses.length,
-                mistakeCount: _mistakes.length,
-              ),
-              const SizedBox(height: 32),
-              _buildButtons(context),
-              const SizedBox(height: 16),
+                  const SizedBox(height: 32),
+                  _buildButtons(context),
+                  const SizedBox(height: 16),
                   TextButton(onPressed: _reset, child: const Text('リセット')),
                 ],
               ),

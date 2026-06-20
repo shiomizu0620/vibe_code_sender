@@ -75,7 +75,8 @@ class Note {
 ///
 /// 振動の正確さ最優先のため、プリアンブルは見た目は「長2連」でも実時間は
 /// PROTOCOL 準拠の [preambleOnMs]=700ms で出す（データの long=450ms とは別物）。
-List<Note> buildChart(int id) => buildChartFromPulses(encode(id), angleSeed: id);
+List<Note> buildChart(int id) =>
+    buildChartFromPulses(encode(id), angleSeed: id);
 
 /// 任意の [Pulse] 列（id方式・X1いずれも可）から譜面（[Note] 列）を生成する。
 ///
