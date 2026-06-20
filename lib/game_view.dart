@@ -308,33 +308,61 @@ class _GamePainter extends CustomPainter {
     _drawJudgmentEffects(canvas, center, ringR);
   }
 
+  // Backing full-circle glow + 8 maimai-style arc slots.
+  // Slots are always visible (dim) and brighten as a note approaches.
   void _drawRing(Canvas canvas, Offset center, double r) {
+    // Faint base glow so the ring area is always subtly visible
     canvas.drawCircle(
       center,
       r,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 28
-        ..color = _neonCyan.withAlpha(25)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18),
+        ..strokeWidth = 24
+        ..color = _neonCyan.withAlpha(12)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16),
     );
-    canvas.drawCircle(
-      center,
-      r,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 8
-        ..color = _neonCyan.withAlpha(80)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
-    );
-    canvas.drawCircle(
-      center,
-      r,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5
-        ..color = _neonCyan,
-    );
+
+    final slotProgress = _computeSlotProgress();
+    // Each slot covers 65 % of the 45° slot width → 29.25° arc, 15.75° gap
+    const arcHalf = pi / 8 * 0.65;
+
+    for (var k = 0; k < 8; k++) {
+      final ca = 2 * pi * k / 8; // center angle of this slot
+      final progress = slotProgress[k];
+
+      // Active glow behind the arc
+      if (progress > 0.02) {
+        canvas.drawArc(
+          Rect.fromCircle(center: center, radius: r),
+          ca - arcHalf,
+          arcHalf * 2,
+          false,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 20
+            ..color = _neonCyan.withAlpha((progress * 90).toInt())
+            ..strokeCap = StrokeCap.round
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
+        );
+      }
+
+      // Crisp arc — dim at idle (alpha 35), full at active (alpha 235)
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: r),
+        ca - arcHalf,
+        arcHalf * 2,
+        false,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3.5
+          ..color = _neonCyan.withAlpha(
+            (35 + progress * 200).toInt().clamp(0, 255),
+          )
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+
+    // Inner guide ring
     canvas.drawCircle(
       center,
       r * 0.82,
@@ -343,6 +371,25 @@ class _GamePainter extends CustomPainter {
         ..strokeWidth = 1
         ..color = _lineColor,
     );
+  }
+
+  // Returns a list of 8 values in [0,1]: max ringProgress of any in-flight
+  // note targeting each slot (0 = idle, 1 = just reached ring).
+  List<double> _computeSlotProgress() {
+    final progress = List<double>.filled(8, 0.0);
+    if (travelMs <= 0) return progress;
+    for (var i = 0; i < notes.length; i++) {
+      final j = results[i];
+      if (j != null && j != Judgement.miss) continue;
+      final spawnMs = notes[i].hitTimeMs.toDouble();
+      if (displayMs < spawnMs) continue;
+      final rp = (displayMs - spawnMs) / travelMs;
+      if (rp <= 0 || rp >= 1.0) continue;
+      // angle = 2π·pos/8  →  slot = round(angle·4/π) % 8
+      final slot = ((notes[i].angle * 4 / pi).round() % 8 + 8) % 8;
+      if (rp > progress[slot]) progress[slot] = rp;
+    }
+    return progress;
   }
 
   // Semi-transparent ring markers showing where in-flight notes will land.
