@@ -11,6 +11,7 @@ import 'pattern_builder.dart';
 import 'qr_import_view.dart';
 import 'score_view.dart';
 import 'supabase_service.dart';
+import 'theme.dart';
 import 'vibrator_service.dart';
 
 /// Supabase 接続情報。anon key のみ。コミットせず `--dart-define-from-file`
@@ -61,9 +62,7 @@ class VibeCodeApp extends StatelessWidget {
       // device_preview 連携（無効時は no-op として透過する）。
       locale: DevicePreview.locale(context),
       builder: DevicePreview.appBuilder,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-      ),
+      theme: buildAppTheme(),
       home: configured ? const _RootShell() : const _ConfigNeededPage(),
     );
   }
@@ -208,10 +207,7 @@ class _X1DirectPageState extends State<X1DirectPage> {
     final preview = _preview();
     final canSend = preview?.canSend ?? false;
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: theme.colorScheme.inversePrimary,
-        title: const Text('VibeCode — 登録なしで送信'),
-      ),
+      appBar: AppBar(title: const Text('登録なしで送信')),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -585,8 +581,7 @@ class _UrlListPageState extends State<UrlListPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: const Text('VibeCode — URL一覧'),
+        title: const Text('保存したURL'),
         actions: [
           IconButton(
             onPressed: _refresh,
@@ -597,37 +592,6 @@ class _UrlListPageState extends State<UrlListPage> {
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _urlController,
-                    keyboardType: TextInputType.url,
-                    decoration: const InputDecoration(
-                      labelText: '登録する URL',
-                      hintText: 'https://example.com',
-                      border: OutlineInputBorder(),
-                    ),
-                    onSubmitted: (_) => _register(),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                FilledButton(
-                  onPressed: _registering ? null : _register,
-                  child: _registering
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('登録'),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
           Expanded(
             child: FutureBuilder<List<UrlEntry>>(
               future: _future,
@@ -636,38 +600,144 @@ class _UrlListPageState extends State<UrlListPage> {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (snapshot.hasError) {
-                  return const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Text('読み込みに失敗しました。通信状況を確認してください。'),
-                    ),
+                  return _MessageState(
+                    icon: Icons.cloud_off,
+                    text: '読み込みに失敗しました。\n通信状況を確認してください。',
                   );
                 }
+                // 並び順（id 昇順）は fetchUrls() 側で揃えている。
                 final entries = snapshot.data ?? const [];
                 if (entries.isEmpty) {
-                  return const Center(child: Text('まだURLがありません。上から登録してください。'));
+                  return const _MessageState(
+                    icon: Icons.link_off,
+                    text: 'まだURLがありません。\n下のフォームから登録してください。',
+                  );
                 }
                 return ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                   itemCount: entries.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, i) {
-                    final entry = entries[i];
-                    return ListTile(
-                      leading: CircleAvatar(child: Text('${entry.id}')),
-                      title: Text(
-                        entry.url,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => _openPlayer(entry),
-                    );
-                  },
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  itemBuilder: (context, i) =>
+                      _buildUrlCard(context, entries[i]),
                 );
               },
             ),
           ),
+          _buildRegisterBar(context),
         ],
+      ),
+    );
+  }
+
+  /// 登録済みURL 1件分のカード。id バッジ＋URL＋遷移シェブロン。
+  Widget _buildUrlCard(BuildContext context, UrlEntry entry) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      child: InkWell(
+        onTap: () => _openPlayer(entry),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${entry.id}',
+                  style: TextStyle(
+                    color: scheme.onPrimaryContainer,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  entry.url,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w500),
+                ),
+              ),
+              Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 画面下に固定する登録フォーム。キーボード表示時はその上に持ち上がる。
+  Widget _buildRegisterBar(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainer,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _urlController,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(
+                    hintText: '登録する URL（https://…）',
+                    prefixIcon: Icon(Icons.add_link),
+                  ),
+                  onSubmitted: (_) => _register(),
+                ),
+              ),
+              const SizedBox(width: 12),
+              FilledButton(
+                onPressed: _registering ? null : _register,
+                child: _registering
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('登録'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 一覧が空・エラー時に出すアイコン付きの中央メッセージ。
+class _MessageState extends StatelessWidget {
+  const _MessageState({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 48, color: scheme.onSurfaceVariant),
+            const SizedBox(height: 16),
+            Text(
+              text,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: scheme.onSurfaceVariant, height: 1.5),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -883,78 +953,126 @@ class _SenderPageState extends State<SenderPage> {
   Widget build(BuildContext context) {
     final hasVibrator = _hasVibrator;
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: const Text('VibeCode Sender'),
-      ),
+      appBar: AppBar(title: const Text('演奏')),
       // 楽譜は X1（URL直接）で打数が増えると縦に長くなる。収まる時は中央寄せ、
       // あふれる時はスクロールできるようにして overflow を防ぐ。
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) => SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(20),
             child: ConstrainedBox(
               constraints: BoxConstraints(
-                minHeight: constraints.maxHeight - 48,
+                minHeight: constraints.maxHeight - 40,
               ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
-                  if (hasVibrator == false)
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 16),
-                      child: Text(
-                        'この端末は振動に対応していません。\n'
-                        '（エミュレータ／シミュレータでは物理的な振動は出ません）',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.redAccent),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 480),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: <Widget>[
+                      if (hasVibrator == false) _buildNoVibratorBanner(context),
+                      _buildTargetHeader(context),
+                      const SizedBox(height: 20),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 20,
+                          ),
+                          child: Column(
+                            children: [
+                              ScoreView(
+                                pulses: _pulses,
+                                cursor: _cursor,
+                                mistakes: _mistakes,
+                              ),
+                              const SizedBox(height: 14),
+                              _StatusLine(
+                                phase: _phase,
+                                cursor: _cursor,
+                                total: _pulses.length,
+                                mistakeCount: _mistakes.length,
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
-                  if (widget.url != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(
-                        widget.url!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
-                  if (!widget.isUrlOnly) ...[
-                    Text(
-                      '番号: ${widget.id}',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 12),
-                    _buildModeSelector(context),
-                  ] else
-                    Text(
-                      '登録なしで送信',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                  const SizedBox(height: 16),
-                  ScoreView(
-                    pulses: _pulses,
-                    cursor: _cursor,
-                    mistakes: _mistakes,
+                      const SizedBox(height: 28),
+                      _buildButtons(context),
+                      const SizedBox(height: 8),
+                      TextButton(onPressed: _reset, child: const Text('リセット')),
+                    ],
                   ),
-                  const SizedBox(height: 8),
-                  _StatusLine(
-                    phase: _phase,
-                    cursor: _cursor,
-                    total: _pulses.length,
-                    mistakeCount: _mistakes.length,
-                  ),
-                  const SizedBox(height: 32),
-                  _buildButtons(context),
-                  const SizedBox(height: 16),
-                  TextButton(onPressed: _reset, child: const Text('リセット')),
-                ],
+                ),
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  /// 振動非対応端末への注意バナー（赤系コンテナ）。
+  Widget _buildNoVibratorBanner(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.errorContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline, color: scheme.onErrorContainer, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'この端末は振動に対応していません。\n'
+              '（エミュレータ／シミュレータでは物理的な振動は出ません）',
+              style: TextStyle(color: scheme.onErrorContainer, fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 演奏対象の見出し。id方式は番号バッジ＋モード切替、X1は「登録なし」チップ。
+  Widget _buildTargetHeader(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Column(
+      children: [
+        if (!widget.isUrlOnly)
+          _HeaderChip(
+            color: scheme.primaryContainer,
+            onColor: scheme.onPrimaryContainer,
+            label: '番号 ${widget.id}',
+          )
+        else
+          _HeaderChip(
+            color: scheme.secondaryContainer,
+            onColor: scheme.onSecondaryContainer,
+            label: '登録なしで送信',
+            icon: Icons.link,
+          ),
+        if (widget.url != null) ...[
+          const SizedBox(height: 10),
+          Text(
+            widget.url!,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+        if (!widget.isUrlOnly) ...[
+          const SizedBox(height: 14),
+          _buildModeSelector(context),
+        ],
+      ],
     );
   }
 
@@ -1089,6 +1207,45 @@ class _StatusLine extends StatelessWidget {
           ),
         ),
       },
+    );
+  }
+}
+
+/// 演奏画面の見出しに使う角丸チップ（番号バッジ / 「登録なし」ラベル）。
+class _HeaderChip extends StatelessWidget {
+  const _HeaderChip({
+    required this.color,
+    required this.onColor,
+    required this.label,
+    this.icon,
+  });
+
+  final Color color;
+  final Color onColor;
+  final String label;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 16, color: onColor),
+            const SizedBox(width: 6),
+          ],
+          Text(
+            label,
+            style: TextStyle(color: onColor, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -230,12 +230,8 @@ class _QrImportPageState extends State<QrImportPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: theme.colorScheme.inversePrimary,
-        title: const Text('VibeCode — QR読み取り'),
-      ),
+      appBar: AppBar(title: const Text('QR読み取り')),
       body: Column(
         children: [
           Expanded(
@@ -359,12 +355,8 @@ class QrImportPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: theme.colorScheme.inversePrimary,
-        title: const Text('VibeCode — QR読み取り（プレビュー）'),
-      ),
+      appBar: AppBar(title: const Text('QR読み取り（プレビュー）')),
       body: Column(
         children: [
           Expanded(
