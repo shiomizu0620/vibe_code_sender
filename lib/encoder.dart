@@ -46,6 +46,11 @@ List<Pulse> encodeUrl(String url) {
     body = url;
   }
 
+  // 本体が空（"https://" 単体など）は length=0 の無効フレームになるので弾く。
+  if (body.isEmpty) {
+    throw ArgumentError.value(url, 'url', 'URL本体が空です');
+  }
+
   // 2. 本体各文字 → 6bit インデックス。
   final indices = <int>[];
   for (var i = 0; i < body.length; i++) {

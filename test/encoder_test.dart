@@ -182,6 +182,12 @@ void main() {
       expect(() => encodeUrl('Github.com'), throwsFormatException);
     });
 
+    test('本体が空（"https://" 単体など）は ArgumentError', () {
+      expect(() => encodeUrl('https://'), throwsArgumentError);
+      expect(() => encodeUrl('http://'), throwsArgumentError);
+      expect(() => encodeUrl(''), throwsArgumentError);
+    });
+
     test('本体63文字超は ArgumentError', () {
       final tooLong = 'a' * (x1MaxLength + 1);
       expect(() => encodeUrl(tooLong), throwsArgumentError);

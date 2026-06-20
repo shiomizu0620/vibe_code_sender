@@ -130,8 +130,9 @@ class _X1DirectPageState extends State<X1DirectPage> {
     } on FormatException {
       setState(() => _error = 'X1で送れない文字が含まれます（小文字URLのみ対応）');
       return;
-    } on ArgumentError {
-      setState(() => _error = 'URL が長すぎます（本体は最大 $x1MaxLength 文字）');
+    } on ArgumentError catch (e) {
+      // 本体が空 / 長すぎ など。エンコーダのメッセージをそのまま表示。
+      setState(() => _error = 'X1で送れません: ${e.message}');
       return;
     }
     setState(() => _error = null);
@@ -218,13 +219,31 @@ class _ConfigNeededPageState extends State<_ConfigNeededPage> {
   }
 
   void _openTestSender() {
-    final url = _testUrlController.text.trim();
+    final raw = _testUrlController.text.trim();
+    final url = raw.isEmpty ? 'github.com' : raw;
+    // SenderPage は initState で encodeUrl(url) を呼ぶため、不正URLのまま渡すと
+    // ビルドがクラッシュする。X1DirectPage と同様にここで事前検証して弾く。
+    try {
+      encodeUrl(url);
+    } on FormatException {
+      _showTestError('X1で送れない文字が含まれます（小文字URLのみ対応）');
+      return;
+    } on ArgumentError catch (e) {
+      _showTestError('X1で送れません: ${e.message}');
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         // X1（URL直接）専用で開く（id なし）。
-        builder: (_) => SenderPage(url: url.isEmpty ? 'github.com' : url),
+        builder: (_) => SenderPage(url: url),
       ),
     );
+  }
+
+  void _showTestError(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
