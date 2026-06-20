@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'constants.dart';
@@ -62,21 +63,41 @@ class _RootShell extends StatefulWidget {
 class _RootShellState extends State<_RootShell> {
   int _tab = 0;
 
+  void _onTabChanged(int i) {
+    setState(() => _tab = i);
+    if (i == 1) {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    } else {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+      ]);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: IndexedStack(
         index: _tab,
-        children: const [UrlListPage(), GameView()],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (i) => setState(() => _tab = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.vibration), label: '演奏'),
-          NavigationDestination(icon: Icon(Icons.sports_esports), label: 'ゲーム'),
+        children: [
+          const UrlListPage(),
+          GameView(onNavigateBack: () => _onTabChanged(0)),
         ],
       ),
+      bottomNavigationBar: _tab == 1
+          ? null
+          : NavigationBar(
+              selectedIndex: _tab,
+              onDestinationSelected: _onTabChanged,
+              destinations: const [
+                NavigationDestination(icon: Icon(Icons.vibration), label: '演奏'),
+                NavigationDestination(icon: Icon(Icons.sports_esports), label: 'ゲーム'),
+              ],
+            ),
     );
   }
 }
