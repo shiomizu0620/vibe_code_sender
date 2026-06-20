@@ -303,6 +303,7 @@ class _GamePainter extends CustomPainter {
     final center = Offset(size.width / 2, size.height / 2);
     final ringR = min(size.width, size.height) * 0.38;
     _drawRing(canvas, center, ringR);
+    _drawNoteGuides(canvas, center, ringR);
     _drawNotes(canvas, center, ringR);
     _drawJudgmentEffects(canvas, center, ringR);
   }
@@ -342,6 +343,48 @@ class _GamePainter extends CustomPainter {
         ..strokeWidth = 1
         ..color = _lineColor,
     );
+  }
+
+  // Semi-transparent ring markers showing where in-flight notes will land.
+  // Drawn before notes so the flying note renders on top of its own guide.
+  void _drawNoteGuides(Canvas canvas, Offset center, double ringR) {
+    if (travelMs <= 0) return;
+    for (var i = 0; i < notes.length; i++) {
+      final note = notes[i];
+      final j = results[i];
+      if (j != null && j != Judgement.miss) continue;
+
+      final spawnMs = note.hitTimeMs.toDouble();
+      if (displayMs < spawnMs) continue;
+      final ringProgress = (displayMs - spawnMs) / travelMs;
+      if (ringProgress >= 1.0) continue; // already at / past ring
+
+      // Base 15 % opacity, rises to 55 % as the note nears the ring
+      final alpha = ((0.15 + ringProgress * 0.40) * 255).toInt();
+      final guidePos = Offset(
+        center.dx + cos(note.angle) * ringR,
+        center.dy + sin(note.angle) * ringR,
+      );
+
+      if (note.type == NoteType.tap) {
+        canvas.drawCircle(
+          guidePos,
+          18,
+          Paint()
+            ..color = _neonAmber.withAlpha(alpha)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2.5,
+        );
+      } else {
+        canvas.drawPath(
+          _diamondPath(guidePos, 24, 14),
+          Paint()
+            ..color = _neonCyan.withAlpha(alpha)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2.5,
+        );
+      }
+    }
   }
 
   void _drawNotes(Canvas canvas, Offset center, double ringR) {
