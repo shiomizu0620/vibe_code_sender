@@ -162,7 +162,9 @@ class _GameViewState extends State<GameView>
     Future.delayed(
       const Duration(milliseconds: preambleOnMs + preambleOffMs),
       () {
-        if (mounted) _vibrator.play(<int>[0, preambleOnMs]);
+        if (mounted && _countdownRemaining != null) {
+          _vibrator.play(<int>[0, preambleOnMs]);
+        }
       },
     );
     setState(() {
