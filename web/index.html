@@ -31,6 +31,26 @@
 
   <title>vibe_code_sender</title>
   <link rel="manifest" href="manifest.json">
+
+  <!--
+    passkeys_web プラグイン対策（自前スタブ・第三者JSではない）。
+    supabase_flutter が依存する passkeys_web は起動時に window.PasskeyAuthenticator の
+    有無を確認し、無いと window.close() を呼ぶ → Web タブが閉じて白画面になる。さらに
+    登録時に PasskeyAuthenticator.init() を呼ぶため、メソッドを持つダミーが必要。
+    本アプリは passkey 認証を一切使わない（anon key の逆引きのみ）ので、全メソッドを
+    no-op にしたスタブで起動を通す。
+  -->
+  <script>
+    window.PasskeyAuthenticator = window.PasskeyAuthenticator || {
+      init: function () {},
+      register: function () { return Promise.reject('passkeys disabled'); },
+      login: function () { return Promise.reject('passkeys disabled'); },
+      cancelCurrentAuthenticatorOperation: function () {},
+      isUserVerifyingPlatformAuthenticatorAvailable: function () { return Promise.resolve(false); },
+      isConditionalMediationAvailable: function () { return Promise.resolve(false); },
+      hasPasskeySupport: function () { return false; }
+    };
+  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>
