@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -7,11 +8,12 @@ import 'constants.dart';
 import 'game_logic.dart';
 import 'vibrator_service.dart';
 
-// ── color palette (matched to receiver oscilloscope) ──────────────────
+// ── color palette ─────────────────────────────────────────────────────
 const _bg = Color(0xFF0B0D16);
 const _bg2 = Color(0xFF11141F);
 const _neonCyan = Color(0xFF36E3E3);
 const _neonAmber = Color(0xFFFFB454);
+const _neonGold = Color(0xFFFFD700);
 const _lineColor = Color(0xFF313A55);
 const _mutedColor = Color(0xFF838AA6);
 
@@ -22,6 +24,20 @@ const _mutedColor = Color(0xFF838AA6);
 const int _travelMs = (preambleOnMs + preambleOffMs) * preambleRepeat; // 1800
 const double _exitMs = 500;
 const int _demoId = 42;
+const int _effectDurationMs = 600; // judgment popup lifetime (ms)
+
+// ── Judgment popup data ───────────────────────────────────────────────
+class _JudgmentEffect {
+  _JudgmentEffect({
+    required this.judgement,
+    required this.angle,
+    required this.startMs,
+  });
+
+  final Judgement judgement;
+  final double angle; // note angle on ring (radians)
+  final int startMs; // displayMs when triggered
+}
 
 // ── GameView ──────────────────────────────────────────────────────────
 class GameView extends StatefulWidget {
@@ -41,6 +57,8 @@ class _GameViewState extends State<GameView>
   late final Ticker _ticker;
   int _displayMs = 0;
   bool _started = false;
+  final List<_JudgmentEffect> _effects = [];
+  int _combo = 0;
 
   @override
   void initState() {
@@ -63,23 +81,30 @@ class _GameViewState extends State<GameView>
   void _onControllerChange() {
     if (_gc.state == GameState.finished && _started) {
       _ticker.stop();
-      // _displayMs is intentionally NOT reset here so the waveform stays at the
-      // end position until the user presses play again. Ticker.start() always
-      // resets elapsed to zero, so _displayMs will be overwritten on next start.
+      // _displayMs is intentionally NOT reset here so the waveform stays at
+      // the end position until the user presses play again. Ticker.start()
+      // always resets elapsed to zero, so _displayMs will be overwritten.
       setState(() => _started = false);
     }
   }
 
   void _onTick(Duration elapsed) {
-    setState(() => _displayMs = elapsed.inMilliseconds);
+    final ms = elapsed.inMilliseconds;
+    _effects.removeWhere((e) => ms - e.startMs > _effectDurationMs);
+    setState(() => _displayMs = ms);
     final gameMs = _displayMs - _travelMs;
     if (gameMs >= 0) _gc.tick(gameMs);
   }
 
   void _start() {
+    _gc.reset(); // ensure clean slate for replay
     _gc.start();
     _ticker.start();
-    setState(() => _started = true);
+    setState(() {
+      _started = true;
+      _combo = 0;
+      _effects.clear();
+    });
   }
 
   void _stop() {
@@ -88,6 +113,8 @@ class _GameViewState extends State<GameView>
     setState(() {
       _started = false;
       _displayMs = 0;
+      _combo = 0;
+      _effects.clear();
     });
   }
 
@@ -97,7 +124,22 @@ class _GameViewState extends State<GameView>
     if (!_started || _gc.state != GameState.playing) return;
     final gameMs = _displayMs - _travelMs;
     if (gameMs < 0) return; // ignore taps during visual countdown
-    _gc.onInputDown(gameMs);
+    final cursor = _gc.cursor;
+    if (cursor >= _gc.notes.length) return;
+    final j = _gc.onInputDown(gameMs);
+    if (j == null) return;
+    _effects.add(
+      _JudgmentEffect(
+        judgement: j,
+        angle: _gc.notes[cursor].angle,
+        startMs: _displayMs,
+      ),
+    );
+    if (j != Judgement.miss) {
+      _combo++;
+    } else {
+      _combo = 0;
+    }
   }
 
   @override
@@ -133,11 +175,22 @@ class _GameViewState extends State<GameView>
                       painter: _GamePainter(
                         notes: _gc.notes,
                         results: _gc.results,
+                        effects: List.unmodifiable(_effects),
                         displayMs: _displayMs.toDouble(),
                         travelMs: _travelMs.toDouble(),
                       ),
                     ),
                   ),
+                  // Combo HUD — shown from first hit, cleared on miss or restart
+                  if (_combo >= 1)
+                    Positioned(
+                      top: 20,
+                      left: 0,
+                      right: 0,
+                      child: IgnorePointer(
+                        child: Center(child: _buildComboDisplay()),
+                      ),
+                    ),
                   Positioned(
                     bottom: 24,
                     left: 0,
@@ -156,6 +209,33 @@ class _GameViewState extends State<GameView>
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildComboDisplay() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '$_combo',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 52,
+            fontWeight: FontWeight.bold,
+            letterSpacing: -2,
+            shadows: [Shadow(color: _neonCyan, blurRadius: 16)],
+          ),
+        ),
+        const Text(
+          'COMBO',
+          style: TextStyle(
+            color: _neonCyan,
+            fontSize: 10,
+            letterSpacing: 5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
     );
   }
 
@@ -202,16 +282,19 @@ class _BgPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-// ── Game painter: ring + flying notes ─────────────────────────────────
+// ── Game painter: ring + flying notes + judgment effects ──────────────
 class _GamePainter extends CustomPainter {
   _GamePainter({
     required this.notes,
     required this.results,
+    required this.effects,
     required this.displayMs,
     required this.travelMs,
   });
+
   final List<Note> notes;
   final Map<int, Judgement> results;
+  final List<_JudgmentEffect> effects;
   final double displayMs;
   final double travelMs;
 
@@ -221,6 +304,7 @@ class _GamePainter extends CustomPainter {
     final ringR = min(size.width, size.height) * 0.38;
     _drawRing(canvas, center, ringR);
     _drawNotes(canvas, center, ringR);
+    _drawJudgmentEffects(canvas, center, ringR);
   }
 
   void _drawRing(Canvas canvas, Offset center, double r) {
@@ -289,7 +373,7 @@ class _GamePainter extends CustomPainter {
       if (note.type == NoteType.tap) {
         _drawCircleNote(canvas, pos, opacity);
       } else {
-        _drawStarNote(canvas, pos, note.angle, ringProgress, opacity);
+        _drawStarNote(canvas, center, pos, ringProgress, opacity);
       }
     }
   }
@@ -310,46 +394,123 @@ class _GamePainter extends CustomPainter {
     );
   }
 
-  // Long / hold note: cyan diamond + trailing tail
+  // Long / hold note: glowing slide trail (gradient beam from center) + diamond
   void _drawStarNote(
     Canvas canvas,
+    Offset center,
     Offset pos,
-    double angle,
     double ringProgress,
     double opacity,
   ) {
-    if (ringProgress > 0.05) {
-      final trailLen = min(ringProgress, 1.0) * 72;
-      final trailEnd = Offset(
-        pos.dx - cos(angle) * trailLen,
-        pos.dy - sin(angle) * trailLen,
-      );
+    final t = ringProgress.clamp(0.0, 1.0);
+    if (t > 0.02) {
+      // Outer glow beam — wide, blurry, fades from center to note
       canvas.drawLine(
-        trailEnd,
+        center,
         pos,
         Paint()
-          ..color = _neonCyan.withAlpha((opacity * 160).toInt())
-          ..strokeWidth = 5
-          ..strokeCap = StrokeCap.round,
+          ..strokeWidth = 22
+          ..strokeCap = StrokeCap.round
+          ..shader = ui.Gradient.linear(center, pos, [
+            _neonCyan.withAlpha(0),
+            _neonCyan.withAlpha((opacity * 55).toInt()),
+          ])
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
+      );
+      // Inner bright beam
+      canvas.drawLine(
+        center,
+        pos,
+        Paint()
+          ..strokeWidth = 4
+          ..strokeCap = StrokeCap.round
+          ..shader = ui.Gradient.linear(center, pos, [
+            _neonCyan.withAlpha(0),
+            _neonCyan.withAlpha((opacity * 200).toInt()),
+          ]),
       );
     }
+
+    // Glow halo
     canvas.drawCircle(
       pos,
-      32,
+      36,
       Paint()
-        ..color = _neonCyan.withAlpha((opacity * 50).toInt())
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14),
+        ..color = _neonCyan.withAlpha((opacity * 60).toInt())
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18),
     );
-    final path = Path()
-      ..moveTo(pos.dx, pos.dy - 20)
-      ..lineTo(pos.dx + 11, pos.dy)
-      ..lineTo(pos.dx, pos.dy + 20)
-      ..lineTo(pos.dx - 11, pos.dy)
-      ..close();
+
+    // Diamond fill + rim
+    final dPath = _diamondPath(pos, 22, 13);
     canvas.drawPath(
-      path,
+      dPath,
       Paint()..color = _neonCyan.withAlpha((opacity * 255).toInt()),
     );
+    canvas.drawPath(
+      dPath,
+      Paint()
+        ..color = Colors.white.withAlpha((opacity * 180).toInt())
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+  }
+
+  Path _diamondPath(Offset c, double halfH, double halfW) => Path()
+    ..moveTo(c.dx, c.dy - halfH)
+    ..lineTo(c.dx + halfW, c.dy)
+    ..lineTo(c.dx, c.dy + halfH)
+    ..lineTo(c.dx - halfW, c.dy)
+    ..close();
+
+  // PERFECT / GOOD / MISS text floating up from ring hit point
+  void _drawJudgmentEffects(Canvas canvas, Offset center, double ringR) {
+    for (final effect in effects) {
+      final age = displayMs - effect.startMs;
+      if (age < 0 || age > _effectDurationMs) continue;
+      final t = age / _effectDurationMs;
+      final opacity = (1.0 - t).clamp(0.0, 1.0);
+      final rise = t * 48.0; // floats upward on screen
+
+      final ringPos = Offset(
+        center.dx + cos(effect.angle) * ringR,
+        center.dy + sin(effect.angle) * ringR,
+      );
+      final textPos = Offset(ringPos.dx, ringPos.dy - rise);
+
+      String label;
+      Color labelColor;
+      if (effect.judgement == Judgement.perfect) {
+        label = 'PERFECT';
+        labelColor = _neonGold;
+      } else if (effect.judgement == Judgement.good) {
+        label = 'GOOD';
+        labelColor = _neonCyan;
+      } else {
+        label = 'MISS';
+        labelColor = _mutedColor;
+      }
+
+      final tp = TextPainter(
+        text: TextSpan(
+          text: label,
+          style: TextStyle(
+            color: labelColor.withAlpha((opacity * 255).toInt()),
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 2.5,
+            shadows: [
+              Shadow(
+                color: labelColor.withAlpha((opacity * 160).toInt()),
+                blurRadius: 8,
+              ),
+            ],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      tp.layout();
+      tp.paint(canvas, textPos - Offset(tp.width / 2, tp.height / 2));
+    }
   }
 
   @override
@@ -365,6 +526,7 @@ class _WaveformBar extends StatelessWidget {
     required this.gameMs,
     required this.totalMs,
   });
+
   final List<Note> notes;
   final Map<int, Judgement> results;
   final double gameMs;
@@ -412,6 +574,7 @@ class _WaveformPainter extends CustomPainter {
     required this.gameMs,
     required this.totalMs,
   });
+
   final List<Note> notes;
   final Map<int, Judgement> results;
   final double gameMs;
