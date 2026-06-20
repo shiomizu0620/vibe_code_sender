@@ -308,30 +308,30 @@ class _GamePainter extends CustomPainter {
     _drawJudgmentEffects(canvas, center, ringR);
   }
 
-  // 8 LED-style button segments like the physical maimai ring.
-  // StrokeCap.butt gives flat ends (panels, not dots). All 8 always lit;
-  // the segment heading to a note flares brighter as it approaches.
+  // Continuous ring: dim base circle (no gaps ever) + 8 bright arc overlays
+  // at the possible note positions. The base guarantees a complete circle;
+  // overlays just repaint those sections at higher opacity.
   void _drawRing(Canvas canvas, Offset center, double r) {
     final rect = Rect.fromCircle(center: center, radius: r);
     final slotProgress = _computeSlotProgress();
-    // 78 % of 45° = 35.1° arc per segment, ~9.9° dark gap between them
-    const arcHalf = pi / 8 * 0.78;
+    // 85 % of 45° = 38.25° bright zone; blur=1 softens the endpoints
+    const arcHalf = pi / 8 * 0.85;
 
-    // Very faint structural circle so the ring shape reads even at rest
+    // Layer 1 — full-circle ambient glow
     canvas.drawCircle(
       center,
       r,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1
-        ..color = _neonCyan.withAlpha(22),
+        ..strokeWidth = 22
+        ..color = _neonCyan.withAlpha(10)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
     );
 
+    // Layer 2 — 8 blurry slot halos (depth, always present)
     for (var k = 0; k < 8; k++) {
       final ca = 2 * pi * k / 8;
       final p = slotProgress[k];
-
-      // Blurry glow halo behind the segment
       canvas.drawArc(
         rect,
         ca - arcHalf,
@@ -339,13 +339,27 @@ class _GamePainter extends CustomPainter {
         false,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 24
-          ..color = _neonCyan.withAlpha((35 + p * 120).toInt())
-          ..strokeCap = StrokeCap.butt
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
+          ..strokeWidth = 18
+          ..color = _neonCyan.withAlpha((28 + p * 110).toInt())
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
       );
+    }
 
-      // Main segment — thick, flat-ended, always clearly visible
+    // Layer 3 — continuous base ring (dim, guarantees zero gaps)
+    canvas.drawCircle(
+      center,
+      r,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4
+        ..color = _neonCyan.withAlpha(55),
+    );
+
+    // Layer 4 — 8 bright arc overlays (same radius/width as base ring).
+    // Paints over the dim base at those 8 positions, making them stand out.
+    for (var k = 0; k < 8; k++) {
+      final ca = 2 * pi * k / 8;
+      final p = slotProgress[k];
       canvas.drawArc(
         rect,
         ca - arcHalf,
@@ -353,9 +367,9 @@ class _GamePainter extends CustomPainter {
         false,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 9
-          ..color = _neonCyan.withAlpha((95 + p * 160).toInt().clamp(0, 255))
-          ..strokeCap = StrokeCap.butt,
+          ..strokeWidth = 4
+          ..color = _neonCyan.withAlpha((130 + p * 125).toInt().clamp(0, 255))
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1),
       );
     }
 
