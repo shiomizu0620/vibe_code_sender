@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'constants.dart';
 import 'encoder.dart';
+import 'game_view.dart';
 import 'pattern_builder.dart';
 import 'score_view.dart';
 import 'supabase_service.dart';
@@ -46,7 +47,36 @@ class VibeCodeApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
       ),
-      home: configured ? const UrlListPage() : const _ConfigNeededPage(),
+      home: configured ? const _RootShell() : const _ConfigNeededPage(),
+    );
+  }
+}
+
+class _RootShell extends StatefulWidget {
+  const _RootShell();
+
+  @override
+  State<_RootShell> createState() => _RootShellState();
+}
+
+class _RootShellState extends State<_RootShell> {
+  int _tab = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: IndexedStack(
+        index: _tab,
+        children: const [UrlListPage(), GameView()],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tab,
+        onDestinationSelected: (i) => setState(() => _tab = i),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.vibration), label: '演奏'),
+          NavigationDestination(icon: Icon(Icons.sports_esports), label: 'ゲーム'),
+        ],
+      ),
     );
   }
 }
