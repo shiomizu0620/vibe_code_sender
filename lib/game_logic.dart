@@ -266,7 +266,8 @@ class GameController extends ChangeNotifier {
     final judgement = judgeHit(note.hitTimeMs, atMs);
     _results[_cursor] = judgement;
     if (judgement != Judgement.miss) {
-      _fire(note);
+      final delayMs = (note.hitTimeMs - atMs).clamp(0, goodWindowMs);
+      _fire(note, delayMs: delayMs);
     }
     _cursor++;
     if (_cursor >= _notes.length) _state = GameState.finished;
@@ -283,7 +284,14 @@ class GameController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _fire(Note note) {
-    _vibrator.play(<int>[0, note.durationMs]);
+  void _fire(Note note, {int delayMs = 0}) {
+    if (delayMs > 0) {
+      Future.delayed(
+        Duration(milliseconds: delayMs),
+        () => _vibrator.play(<int>[0, note.durationMs]),
+      );
+    } else {
+      _vibrator.play(<int>[0, note.durationMs]);
+    }
   }
 }
