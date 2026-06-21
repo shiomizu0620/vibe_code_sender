@@ -953,57 +953,80 @@ class _SenderPageState extends State<SenderPage> {
   Widget build(BuildContext context) {
     final hasVibrator = _hasVibrator;
     return Scaffold(
-      appBar: AppBar(title: const Text('演奏')),
-      // 楽譜は X1（URL直接）で打数が増えると縦に長くなる。収まる時は中央寄せ、
-      // あふれる時はスクロールできるようにして overflow を防ぐ。
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) => SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight: constraints.maxHeight - 40,
-              ),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 480),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: <Widget>[
-                      if (hasVibrator == false) _buildNoVibratorBanner(context),
-                      _buildTargetHeader(context),
-                      const SizedBox(height: 20),
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 20,
-                          ),
-                          child: Column(
-                            children: [
-                              ScoreView(
-                                pulses: _pulses,
-                                cursor: _cursor,
-                                mistakes: _mistakes,
-                              ),
-                              const SizedBox(height: 14),
-                              _StatusLine(
-                                phase: _phase,
-                                cursor: _cursor,
-                                total: _pulses.length,
-                                mistakeCount: _mistakes.length,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 28),
-                      _buildButtons(context),
-                      const SizedBox(height: 8),
-                      TextButton(onPressed: _reset, child: const Text('リセット')),
-                    ],
-                  ),
+      appBar: AppBar(
+        title: const Text('演奏'),
+        actions: [
+          IconButton(
+            tooltip: 'ゲームで演奏',
+            icon: const Icon(Icons.sports_esports),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                // 現在の譜面(_pulses)をそのままゲームに渡して起動する。
+                builder: (gameContext) => GameView(
+                  initialPulses: _pulses,
+                  onNavigateBack: () => Navigator.of(gameContext).pop(),
                 ),
+              ),
+            ),
+          ),
+        ],
+      ),
+      // ヘッダ（番号/URL/トグル）は上に固定、楽譜だけ中央でスクロール、ステータスと
+      // 操作（短/長・演奏ボタン）は下に固定する。X1 は打数が多く楽譜が縦に長くなるが、
+      // 打鍵ボタンが流れて見えなくならないようにするため（楽譜は現在位置へ自動スクロール）。
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                children: <Widget>[
+                  const SizedBox(height: 16),
+                  if (hasVibrator == false) _buildNoVibratorBanner(context),
+                  _buildTargetHeader(context),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: Card(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) =>
+                            SingleChildScrollView(
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  minHeight: constraints.maxHeight,
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 20,
+                                  ),
+                                  // 収まる時は中央寄せ、あふれる時はスクロール。
+                                  child: Center(
+                                    child: ScoreView(
+                                      pulses: _pulses,
+                                      cursor: _cursor,
+                                      mistakes: _mistakes,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _StatusLine(
+                    phase: _phase,
+                    cursor: _cursor,
+                    total: _pulses.length,
+                    mistakeCount: _mistakes.length,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildButtons(context),
+                  const SizedBox(height: 4),
+                  TextButton(onPressed: _reset, child: const Text('リセット')),
+                  const SizedBox(height: 8),
+                ],
               ),
             ),
           ),
@@ -1109,20 +1132,32 @@ class _SenderPageState extends State<SenderPage> {
       _Phase.idle => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          ElevatedButton.icon(
-            onPressed: _startPlaying,
-            icon: const Icon(Icons.play_arrow),
-            label: const Text('演奏開始'),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _startPlaying,
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('演奏開始'),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(52),
+              ),
+            ),
           ),
           const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: _playAuto,
-            icon: const Icon(Icons.smart_toy),
-            label: const Text('自動演奏'),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.tonalIcon(
+              onPressed: _playAuto,
+              icon: const Icon(Icons.smart_toy_outlined),
+              label: const Text('自動演奏'),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+              ),
+            ),
           ),
         ],
       ),
-      _Phase.preamble => ElevatedButton.icon(
+      _Phase.preamble => FilledButton.icon(
         onPressed: null,
         icon: const SizedBox(
           width: 16,
@@ -1130,22 +1165,17 @@ class _SenderPageState extends State<SenderPage> {
           child: CircularProgressIndicator(strokeWidth: 2),
         ),
         label: const Text('はじめの合図を送信中...'),
+        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
       ),
       _Phase.playing => Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          ElevatedButton(
-            onPressed: _vibrating ? null : _playShort,
-            child: const Text('● 短'),
-          ),
-          const SizedBox(width: 16),
-          ElevatedButton(
-            onPressed: _vibrating ? null : _playLong,
-            child: const Text('━ 長'),
-          ),
+          _PlayKey(isLong: false, onTap: _vibrating ? null : _playShort),
+          const SizedBox(width: 20),
+          _PlayKey(isLong: true, onTap: _vibrating ? null : _playLong),
         ],
       ),
-      _Phase.auto => ElevatedButton.icon(
+      _Phase.auto => FilledButton.icon(
         onPressed: null,
         icon: const SizedBox(
           width: 16,
@@ -1153,16 +1183,63 @@ class _SenderPageState extends State<SenderPage> {
           child: CircularProgressIndicator(strokeWidth: 2),
         ),
         label: const Text('自動演奏中...'),
+        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
       ),
-      _Phase.done => Row(
+      _Phase.done => const Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          ElevatedButton(onPressed: null, child: const Text('● 短')),
-          const SizedBox(width: 16),
-          ElevatedButton(onPressed: null, child: const Text('━ 長')),
+          _PlayKey(isLong: false, onTap: null),
+          SizedBox(width: 20),
+          _PlayKey(isLong: true, onTap: null),
         ],
       ),
     };
+  }
+}
+
+/// 手動演奏の打鍵ボタン。短＝ドット、長＝バーのマーク＋ラベルで、テキスト
+/// 記号より大きく押しやすいタッチターゲットにする。
+class _PlayKey extends StatelessWidget {
+  const _PlayKey({required this.isLong, required this.onTap});
+
+  final bool isLong;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return FilledButton(
+      onPressed: onTap,
+      style: FilledButton.styleFrom(
+        minimumSize: Size(isLong ? 150 : 110, 88),
+        backgroundColor: scheme.primaryContainer,
+        foregroundColor: scheme.onPrimaryContainer,
+        disabledBackgroundColor: scheme.surfaceContainerHighest,
+        disabledForegroundColor: scheme.onSurfaceVariant,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            // 長は細長のバー。短(ドット)より薄くして区別を明確にする。
+            width: isLong ? 46 : 18,
+            height: isLong ? 10 : 18,
+            decoration: BoxDecoration(
+              color: onTap == null
+                  ? scheme.onSurfaceVariant
+                  : scheme.onPrimaryContainer,
+              borderRadius: BorderRadius.circular(isLong ? 5 : 9),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            isLong ? '長' : '短',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
   }
 }
 
