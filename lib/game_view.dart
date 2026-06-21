@@ -10,14 +10,14 @@ import 'game_logic.dart';
 import 'supabase_service.dart';
 import 'vibrator_service.dart';
 
-// ── color palette (ProSeka) ────────────────────────────────────────────
-const _bg = Color(0xFF08001A);
-const _neonCyan = Color(0xFF36E3E3);
+// ── color palette (Aurora Teal) ───────────────────────────────────────
+const _bg = Color(0xFF091C1A);
+const _neonCyan = Color(0xFF3DFFAA);
 const _neonAmber = Color(0xFFFFB454);
 const _neonGold = Color(0xFFFFD700);
-const _neonPurple = Color(0xFFAA6EFF);
-const _lineColor = Color(0xFF281545);
-const _mutedColor = Color(0xFF7A6E9A);
+const _neonPurple = Color(0xFFD070FF);
+const _lineColor = Color(0xFF163530);
+const _mutedColor = Color(0xFF5A8878);
 
 // ── timing ────────────────────────────────────────────────────────────
 // Fixed protocol timing offset. Notes always reach the judgment line at
@@ -250,10 +250,9 @@ class _GameViewState extends State<GameView>
     });
   }
 
-  void _onTapDown(TapDownDetails details) {
-    // Ignore taps outside the tap pad area (bottom 20% of screen).
+  void _onPointerDown(Offset localPosition) {
     final screenH = context.size?.height ?? double.infinity;
-    if (details.localPosition.dy < screenH * 0.80) return;
+    if (localPosition.dy < screenH * 0.80) return;
     if (!_started || _gc.state != GameState.playing) return;
     final gameMs = _displayMs - _judgeOffsetMs;
     if (gameMs < 0) return;
@@ -269,7 +268,6 @@ class _GameViewState extends State<GameView>
         startMs: _displayMs,
       ),
     );
-    // Hold notes that weren't missed: record tap time for drain animation.
     if (tappedNote.type == NoteType.hold && j != Judgement.miss) {
       _holdStartMs[cursor] = _displayMs;
     }
@@ -280,14 +278,17 @@ class _GameViewState extends State<GameView>
     }
   }
 
+  void _onPointerUp() {}
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _bg,
       body: SafeArea(
-        child: GestureDetector(
+        child: Listener(
           behavior: HitTestBehavior.opaque,
-          onTapDown: _onTapDown,
+          onPointerDown: (e) => _onPointerDown(e.localPosition),
+          onPointerUp: (_) => _onPointerUp(),
           child: Stack(
             children: [
               Positioned.fill(child: CustomPaint(painter: _BgPainter())),
@@ -1426,67 +1427,116 @@ class _GamePainter extends CustomPainter {
     for (var i = 0; i < notes.length; i++) {
       final note = notes[i];
 
-      // Hold note that was tapped: drain animation (shrinks toward tail).
+      // Tapped hold: expire once the full duration is consumed.
       final tapMs = holdStartMs[i];
       if (tapMs != null) {
         final holdProgress = ((displayMs - tapMs) / note.durationMs).clamp(
           0.0,
           1.0,
         );
-        if (holdProgress >= 1.0) continue; // fully drained
-        final lane = _toLane(note.angle);
-        final headLaneW = _perspLaneW(1.0, size.width);
-        final remainingFrac =
-            (1.0 - holdProgress) * (note.durationMs / travelMs);
-        _drawHoldNote(
-          canvas,
-          lane,
-          headLaneW,
-          judgeY,
-          remainingFrac,
-          judgeY,
-          1.0,
-          size.width,
-        );
-        continue;
+        if (holdProgress >= 1.0) continue;
+        // Fall through so natural progress drives the position.
       }
 
       final j = results[i];
-      if (j != null && j != Judgement.miss) continue;
+      final isHit = j == Judgement.perfect || j == Judgement.good;
 
-      // Note spawns early enough to reach the judgment line at
-      // displayMs = hitTimeMs + _judgeOffsetMs, regardless of travelMs.
-      final spawnMs = note.hitTimeMs + _judgeOffsetMs - travelMs;
+      final double spawnMs = note.hitTimeMs + _judgeOffsetMs - travelMs;
       if (displayMs < spawnMs) continue;
 
-      final progress = (displayMs - spawnMs) / travelMs;
-      if (progress > 1.0 + _exitMs / travelMs) continue;
+      final double progress = (displayMs - spawnMs) / travelMs;
+      final double barLenFraction = note.durationMs / travelMs;
 
-      final opacity = progress >= 1.0
-          ? (1.0 - (progress - 1.0) * travelMs / _exitMs).clamp(0.0, 1.0)
-          : 1.0;
+      // Hit notes always use natural constant-speed flow along the lane.
+      // Missed notes use the _exitMs formula (fade while slowing to screen edge).
+      final maxProgress =
+          (tapMs != null || isHit)
+              ? size.height / judgeY + barLenFraction
+              : 1.0 + _exitMs / travelMs;
+      if (progress > maxProgress) continue;
+
+      // Tap notes: hide ghost until the note reaches the line.
+      if (isHit && note.type == NoteType.tap && progress < 1.0) continue;
 
       final lane = _toLane(note.angle);
-      final noteY = judgeY * progress;
-      // Clamp progress to [0,1] for position/size (exit goes below judgeY)
-      final p = progress.clamp(0.0, 1.0);
+      // Hit notes: judgeY * progress (constant speed, follows lane perspective).
+      // Missed notes: _exitMs-based formula after the line.
+      final double noteY;
+      if (!isHit && tapMs == null && progress > 1.0) {
+        final exitFrac = ((progress - 1.0) * travelMs / _exitMs).clamp(
+          0.0,
+          1.0,
+        );
+        noteY = judgeY + (size.height - judgeY) * exitFrac;
+      } else {
+        noteY = judgeY * progress;
+      }
+      // Use unclamped progress for lane X/W on hit notes so they follow
+      // the perspective projection past the judgment line.
+      final double p = isHit && progress > 1.0 ? progress : progress.clamp(0.0, 1.0);
       final laneX = _perspX(lane, p, size.width);
       final laneW = _perspLaneW(p, size.width);
 
       if (note.type == NoteType.tap) {
+        final double opacity;
+        if (isHit) {
+          final exitFrac = ((progress - 1.0) * travelMs / _exitMs).clamp(
+            0.0,
+            1.0,
+          );
+          opacity = 0.45 * (1.0 - exitFrac);
+        } else {
+          opacity =
+              progress >= 1.0
+                  ? (1.0 - (progress - 1.0) * travelMs / _exitMs).clamp(
+                    0.0,
+                    1.0,
+                  )
+                  : 1.0;
+        }
         _drawTapNote(canvas, laneX, laneW, noteY, opacity);
       } else {
-        final barLenFraction = note.durationMs / travelMs;
-        _drawHoldNote(
-          canvas,
-          lane,
-          laneW,
-          noteY,
-          barLenFraction,
-          judgeY,
-          opacity,
-          size.width,
-        );
+        if (isHit) {
+          // Tapped hold: flows through judgeY at constant speed.
+          // Above judgeY → bright; below judgeY → dim, fades as tail clears line.
+          final holdExitFrac =
+              ((progress - 1.0) / barLenFraction).clamp(0.0, 1.0);
+          canvas.save();
+          canvas.clipRect(Rect.fromLTRB(0, 0, size.width, judgeY));
+          _drawHoldNote(
+            canvas, lane, laneW, noteY,
+            barLenFraction, judgeY, 1.0, size.width,
+          );
+          canvas.restore();
+          canvas.save();
+          canvas.clipRect(
+            Rect.fromLTRB(0, judgeY, size.width, size.height),
+          );
+          _drawHoldNote(
+            canvas, lane, laneW, noteY, barLenFraction, judgeY,
+            0.30 * (1.0 - holdExitFrac), size.width,
+          );
+          canvas.restore();
+        } else {
+          // Non-tapped hold: clamp at judgeY, fade out if missed.
+          final opacity =
+              progress >= 1.0
+                  ? (1.0 - (progress - 1.0) * travelMs / _exitMs).clamp(
+                    0.0,
+                    1.0,
+                  )
+                  : 1.0;
+          _drawHoldNote(
+            canvas,
+            lane,
+            laneW,
+            noteY.clamp(0.0, judgeY),
+            barLenFraction,
+            judgeY,
+            opacity,
+            size.width,
+          );
+        }
       }
     }
   }
@@ -1539,16 +1589,18 @@ class _GamePainter extends CustomPainter {
     double opacity,
     double screenW,
   ) {
-    // tail progress = head progress - barLenFraction (clamped to 0 so tail doesn't go above screen)
-    final headProgress = (headY / judgeY).clamp(0.0, 1.0);
-    final tailProgress = (headProgress - barLenFraction).clamp(0.0, 1.0);
+    // Use unclamped Y-progress for both head and tail so the bar continues
+    // along the perspective lane extension past the judgment line.
+    final rawHeadProgress = headY / judgeY;
+    final tailProgress = (rawHeadProgress - barLenFraction).clamp(0.0, 1.0);
     final tailY = judgeY * tailProgress;
 
-    final headW = headLaneW * 0.72;
+    final headLaneX = _perspX(lane, rawHeadProgress, screenW);
+    final headActualW = _perspLaneW(rawHeadProgress, screenW) * 0.72;
+    final tailLaneX = _perspX(lane, tailProgress, screenW);
     final tailLaneW = _perspLaneW(tailProgress, screenW);
     final tailW = tailLaneW * 0.72;
-    final headLaneX = _perspX(lane, headProgress, screenW);
-    final tailLaneX = _perspX(lane, tailProgress, screenW);
+    final headW = headActualW;
 
     // Draw as a trapezoid path (wider at bottom/head, narrower at top/tail)
     final path = Path()

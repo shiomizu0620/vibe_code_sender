@@ -283,7 +283,6 @@ class GameController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 固定長の振動を実時間タイマで一発出す（描画と独立）。
   void _fire(Note note) {
     _vibrator.play(<int>[0, note.durationMs]);
   }
