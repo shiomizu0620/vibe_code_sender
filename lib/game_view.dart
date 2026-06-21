@@ -95,6 +95,7 @@ class _GameViewState extends State<GameView>
   bool _listUseX1 = false; // false=ショート(id方式・9音) / true=ロング(X1・長譜面)
   bool _urlConfirmed = false; // Step2(形式選択)に進んだか
   double _noteSpeed = 4.0;
+  bool _autoPlay = false; // true=自動演奏（触らなくても全ノーツPerfect）
 
   // Visual travel time in ms. Speed 4.0 = 1800ms (protocol default).
   int get _travelMs => (7200.0 / _noteSpeed).round();
@@ -206,6 +207,10 @@ class _GameViewState extends State<GameView>
               startMs: ms,
             ),
           );
+          // 自動演奏の hold ノーツはドレイン演出のため発火時刻を記録する。
+          if (_gc.mode == GameMode.auto && note.type == NoteType.hold) {
+            _holdStartMs[i] = ms;
+          }
           _combo++;
         }
       }
@@ -229,6 +234,7 @@ class _GameViewState extends State<GameView>
   }
 
   void _startPressed() {
+    _gc.setMode(_autoPlay ? GameMode.auto : GameMode.hybrid);
     _gc.reset();
     _gc.start();
     _gc.skipPreamble();
@@ -309,6 +315,7 @@ class _GameViewState extends State<GameView>
     final screenH = context.size?.height ?? double.infinity;
     if (localPosition.dy < screenH * 0.80) return;
     if (!_started || _gc.state != GameState.playing) return;
+    if (_gc.mode == GameMode.auto) return; // 自動演奏中は入力を無視
     final gameMs = _displayMs - _judgeOffsetMs;
     if (gameMs < 0) return;
     final cursor = _gc.cursor;
@@ -357,6 +364,9 @@ class _GameViewState extends State<GameView>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _bg,
+      // 横向き＋ソフトキーボードで本文が潰れ、開始前UIの Column がオーバーフロー
+      // するのを防ぐ。キーボードは画面に重ねる（入力欄は上寄せで隠れないようにする）。
+      resizeToAvoidBottomInset: false,
       body: SafeArea(
         child: Listener(
           behavior: HitTestBehavior.opaque,
@@ -387,6 +397,13 @@ class _GameViewState extends State<GameView>
                   top: 6,
                   left: 10,
                   child: IgnorePointer(child: _buildScoreHud()),
+                ),
+              // AUTO badge — below score HUD during auto-play
+              if (_started && _gc.mode == GameMode.auto)
+                Positioned(
+                  top: 28,
+                  left: 10,
+                  child: IgnorePointer(child: _buildAutoBadge()),
                 ),
               // Combo HUD — top-center during play
               if (_started && _combo >= 1)
@@ -436,6 +453,10 @@ class _GameViewState extends State<GameView>
                               ? _buildDirectReady()
                               : _buildUrlSelector(),
                         ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                        child: Center(child: _buildAutoToggle()),
                       ),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
@@ -642,6 +663,70 @@ class _GameViewState extends State<GameView>
     );
   }
 
+  /// 自動演奏のON/OFFトグル。開始前の画面で表示する。
+  Widget _buildAutoToggle() {
+    final on = _autoPlay;
+    return GestureDetector(
+      onTap: () => setState(() => _autoPlay = !_autoPlay),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+        decoration: BoxDecoration(
+          color: on ? _neonGold.withAlpha(28) : Colors.transparent,
+          border: Border.all(color: on ? _neonGold : _lineColor),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              on ? Icons.smart_toy : Icons.smart_toy_outlined,
+              size: 15,
+              color: on ? _neonGold : _mutedColor,
+            ),
+            const SizedBox(width: 7),
+            Text(
+              on ? '自動演奏 ON' : '自動演奏 OFF',
+              style: TextStyle(
+                color: on ? _neonGold : _mutedColor,
+                fontSize: 12,
+                fontWeight: on ? FontWeight.w700 : FontWeight.normal,
+                letterSpacing: 1,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 自動演奏中であることを示すバッジ（プレイ中のHUD）。
+  Widget _buildAutoBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: _neonGold.withAlpha(28),
+        border: Border.all(color: _neonGold.withAlpha(160)),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.smart_toy, size: 11, color: _neonGold),
+          SizedBox(width: 4),
+          Text(
+            'AUTO',
+            style: TextStyle(
+              color: _neonGold,
+              fontSize: 9,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _speedBtn(IconData icon, VoidCallback? onTap) {
     final active = onTap != null;
     return GestureDetector(
@@ -842,7 +927,9 @@ class _GameViewState extends State<GameView>
   }
 
   Widget _buildDirectContent() {
-    return Center(
+    // 横向きでキーボードを出しても入力欄が隠れないよう上寄せ。狭い領域でも
+    // あふれないようスクロール可能にする。
+    return SingleChildScrollView(
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
