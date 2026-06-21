@@ -3,10 +3,12 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 
 import 'constants.dart';
 import 'encoder.dart';
 import 'game_logic.dart';
+import 'pattern_builder.dart';
 import 'supabase_service.dart';
 import 'vibrator_service.dart';
 
@@ -46,11 +48,20 @@ class _JudgmentEffect {
 
 // ── GameView ──────────────────────────────────────────────────────────
 class GameView extends StatefulWidget {
-  const GameView({super.key, this.onNavigateBack, SupabaseService? service})
-    : _service = service;
+  const GameView({
+    super.key,
+    this.onNavigateBack,
+    this.initialPulses,
+    SupabaseService? service,
+  }) : _service = service;
 
-  /// Called when the user taps the back button to return to the 演奏 tab.
+  /// Called when the user taps the back button to return to the 演奏 tab。
+  /// プッシュ遷移で開いた場合（[initialPulses] 指定時）はルートを pop する。
   final VoidCallback? onNavigateBack;
+
+  /// 指定されると URL 選択をスキップし、この譜面を直接ゲームに読み込んで起動する。
+  /// 演奏画面(SenderPage)の「ゲームで演奏」ボタンから現在の譜面を渡す用途。
+  final List<Pulse>? initialPulses;
 
   final SupabaseService? _service;
 
@@ -81,12 +92,15 @@ class _GameViewState extends State<GameView>
   final TextEditingController _directUrlCtrl = TextEditingController();
   String? _directUrlError;
   bool _directUrlReady = false;
-  bool _listUseX1 = false; // false=IDモード(9音) / true=X1モード(長い譜面)
+  bool _listUseX1 = false; // false=ショート(id方式・9音) / true=ロング(X1・長譜面)
   bool _urlConfirmed = false; // Step2(形式選択)に進んだか
   double _noteSpeed = 4.0;
 
   // Visual travel time in ms. Speed 4.0 = 1800ms (protocol default).
   int get _travelMs => (7200.0 / _noteSpeed).round();
+
+  /// 演奏画面から譜面を直接渡されて起動したか（URL選択をスキップする）。
+  bool get _isDirectLaunch => widget.initialPulses != null;
 
   @override
   void initState() {
@@ -94,10 +108,21 @@ class _GameViewState extends State<GameView>
     _service = widget._service ?? SupabaseService();
     _vibrator = VibratorService();
     _gc = GameController(vibrator: _vibrator);
-    _gc.load(_demoId); // placeholder until URL is selected
     _ticker = createTicker(_onTick);
     _gc.addListener(_onControllerChange);
-    _fetchUrls();
+    if (_isDirectLaunch) {
+      // プッシュ遷移で開かれるためタブ切替の向き設定が効かない。ここで横向きにする。
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+      _gc.loadPulses(widget.initialPulses!);
+      _selectorMode = _SelectorMode.direct; // 選択UIは出さず直接演奏可能状態に
+      _directUrlReady = true;
+    } else {
+      _gc.load(_demoId); // placeholder until URL is selected
+      _fetchUrls();
+    }
   }
 
   Future<void> _fetchUrls() async {
@@ -130,6 +155,13 @@ class _GameViewState extends State<GameView>
 
   @override
   void dispose() {
+    if (_isDirectLaunch) {
+      // プッシュ遷移で横向きにしたので、戻る画面（縦）のために縦向きへ戻す。
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+      ]);
+    }
     _gc.removeListener(_onControllerChange);
     _ticker.dispose();
     _gc.dispose();
@@ -398,7 +430,11 @@ class _GameViewState extends State<GameView>
                       Expanded(
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                          child: _buildUrlSelector(),
+                          // 演奏画面から直接起動した時は URL 選択を出さず、
+                          // 読み込み済みの譜面でそのまま開始できる案内を出す。
+                          child: _isDirectLaunch
+                              ? _buildDirectReady()
+                              : _buildUrlSelector(),
                         ),
                       ),
                       Padding(
@@ -416,6 +452,43 @@ class _GameViewState extends State<GameView>
         ),
       ),
     );
+  }
+
+  /// 演奏画面から直接起動した時の準備画面。URL選択の代わりに、読み込み済みの
+  /// 譜面でそのまま「演奏開始」を押せることを案内する。
+  Widget _buildDirectReady() {
+    final count = widget.initialPulses?.length ?? 0;
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.sports_esports, color: _neonPurple, size: 52),
+          const SizedBox(height: 16),
+          const Text(
+            'このURLをゲームで演奏',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.5,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '$count ノーツ',
+            style: const TextStyle(color: _mutedColor, fontSize: 12),
+          ),
+          const SizedBox(height: 28),
+          _buildSpeedControl(),
+        ],
+      ),
+    );
+  }
+
+  /// 停止/キャンセル。直接起動時は呼び出し元（演奏画面）へ pop して戻る。
+  void _handleStop() {
+    _stop();
+    if (_isDirectLaunch) widget.onNavigateBack?.call();
   }
 
   Widget _buildUrlSelector() {
@@ -523,9 +596,9 @@ class _GameViewState extends State<GameView>
         _directUrlReady = true;
       });
     } on FormatException {
-      setState(() => _directUrlError = 'X1で送れない文字が含まれます（小文字URLのみ）');
-    } on ArgumentError catch (e) {
-      setState(() => _directUrlError = 'X1で送れません: ${e.message}');
+      setState(() => _directUrlError = '送れない文字が含まれます（小文字のURLのみ対応）');
+    } on ArgumentError {
+      setState(() => _directUrlError = 'ロングでは送れないURLです');
     }
   }
 
@@ -707,11 +780,11 @@ class _GameViewState extends State<GameView>
       child: Row(
         children: [
           Expanded(
-            child: _buildEncTab('ID', subtitle: '9打 · 固定長', useX1: false),
+            child: _buildEncTab('ショート', subtitle: '9打 · 固定長', useX1: false),
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: _buildEncTab('X1', subtitle: '長譜面 · URL直接', useX1: true),
+            child: _buildEncTab('ロング', subtitle: '長譜面 · URL直接', useX1: true),
           ),
         ],
       ),
@@ -1064,7 +1137,8 @@ class _GameViewState extends State<GameView>
             ),
             const SizedBox(height: 32),
             ElevatedButton.icon(
-              onPressed: _stop,
+              // 直接起動時は同じ譜面で再演奏。通常時は選択画面へ戻す。
+              onPressed: _isDirectLaunch ? _startPressed : _stop,
               icon: const Icon(Icons.replay, size: 16),
               label: const Text('もう一度', style: TextStyle(fontSize: 13)),
               style: ElevatedButton.styleFrom(
@@ -1201,7 +1275,7 @@ class _GameViewState extends State<GameView>
     if (_started || _countdownRemaining != null) {
       final label = _countdownRemaining != null ? 'キャンセル' : '停止';
       return OutlinedButton.icon(
-        onPressed: _stop,
+        onPressed: _handleStop,
         icon: const Icon(Icons.stop, color: _neonCyan, size: 14),
         label: Text(
           label,
