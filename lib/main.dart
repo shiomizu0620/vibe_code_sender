@@ -59,6 +59,7 @@ class VibeCodeApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'VibeCode Sender',
+      debugShowCheckedModeBanner: false,
       // device_preview 連携（無効時は no-op として透過する）。
       locale: DevicePreview.locale(context),
       builder: DevicePreview.appBuilder,
