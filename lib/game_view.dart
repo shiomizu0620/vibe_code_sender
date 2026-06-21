@@ -12,14 +12,14 @@ import 'pattern_builder.dart';
 import 'supabase_service.dart';
 import 'vibrator_service.dart';
 
-// ── color palette (ProSeka) ────────────────────────────────────────────
-const _bg = Color(0xFF08001A);
-const _neonCyan = Color(0xFF36E3E3);
+// ── color palette (Aurora Teal) ───────────────────────────────────────
+const _bg = Color(0xFF091C1A);
+const _neonCyan = Color(0xFF3DFFAA);
 const _neonAmber = Color(0xFFFFB454);
 const _neonGold = Color(0xFFFFD700);
-const _neonPurple = Color(0xFFAA6EFF);
-const _lineColor = Color(0xFF281545);
-const _mutedColor = Color(0xFF7A6E9A);
+const _neonPurple = Color(0xFFD070FF);
+const _lineColor = Color(0xFF163530);
+const _mutedColor = Color(0xFF5A8878);
 
 // ── timing ────────────────────────────────────────────────────────────
 // Fixed protocol timing offset. Notes always reach the judgment line at
@@ -28,7 +28,7 @@ const int _judgeOffsetMs =
     (preambleOnMs + preambleOffMs) * preambleRepeat; // 1800
 const double _exitMs = 500;
 const int _demoId = 42; // fallback when Supabase is unavailable
-const int _effectDurationMs = 600;
+const int _effectDurationMs = 750;
 
 // ── URL selector mode ────────────────────────────────────────────────
 enum _SelectorMode { list, direct }
@@ -282,15 +282,44 @@ class _GameViewState extends State<GameView>
     });
   }
 
-  void _onTapDown(TapDownDetails details) {
-    // Ignore taps outside the tap pad area (bottom 20% of screen).
+  // Lane index (0-5) from tap X position (uses full-width spacing at judgeY).
+  int _laneFromX(double x, double screenW) =>
+      (x * _GamePainter._nLanes / screenW).floor().clamp(
+        0,
+        _GamePainter._nLanes - 1,
+      );
+
+  // Lane index (0-5) from a note's angle — same formula as _GamePainter._toLane.
+  int _laneFromAngle(double angle) =>
+      ((angle * 4 / pi).round() % _GamePainter._nLanes + _GamePainter._nLanes) %
+      _GamePainter._nLanes;
+
+  void _onPointerDown(Offset localPosition) {
     final screenH = context.size?.height ?? double.infinity;
-    if (details.localPosition.dy < screenH * 0.80) return;
+    if (localPosition.dy < screenH * 0.80) return;
     if (!_started || _gc.state != GameState.playing) return;
     final gameMs = _displayMs - _judgeOffsetMs;
     if (gameMs < 0) return;
     final cursor = _gc.cursor;
     if (cursor >= _gc.notes.length) return;
+
+    // Wrong-lane tap → MISS effect at tapped position, no judgment advance.
+    final screenW = context.size?.width ?? double.infinity;
+    final tappedLane = _laneFromX(localPosition.dx, screenW);
+    final noteLane = _laneFromAngle(_gc.notes[cursor].angle);
+    if (tappedLane != noteLane) {
+      setState(() {
+        _effects.add(
+          _JudgmentEffect(
+            judgement: Judgement.miss,
+            angle: tappedLane * pi / 4.0,
+            startMs: _displayMs,
+          ),
+        );
+      });
+      return;
+    }
+
     final j = _gc.onInputDown(gameMs);
     if (j == null) return;
     final tappedNote = _gc.notes[cursor];
@@ -301,7 +330,6 @@ class _GameViewState extends State<GameView>
         startMs: _displayMs,
       ),
     );
-    // Hold notes that weren't missed: record tap time for drain animation.
     if (tappedNote.type == NoteType.hold && j != Judgement.miss) {
       _holdStartMs[cursor] = _displayMs;
     }
@@ -312,14 +340,17 @@ class _GameViewState extends State<GameView>
     }
   }
 
+  void _onPointerUp() {}
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _bg,
       body: SafeArea(
-        child: GestureDetector(
+        child: Listener(
           behavior: HitTestBehavior.opaque,
-          onTapDown: _onTapDown,
+          onPointerDown: (e) => _onPointerDown(e.localPosition),
+          onPointerUp: (_) => _onPointerUp(),
           child: Stack(
             children: [
               Positioned.fill(child: CustomPaint(painter: _BgPainter())),
@@ -1199,22 +1230,27 @@ class _GameViewState extends State<GameView>
           '$_combo',
           style: const TextStyle(
             color: Colors.white,
-            fontSize: 34,
-            fontWeight: FontWeight.bold,
-            letterSpacing: -1,
-            shadows: [Shadow(color: _neonCyan, blurRadius: 12)],
+            fontSize: 42,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -2,
+            height: 1.0,
+            shadows: [
+              Shadow(color: _neonCyan, blurRadius: 16),
+              Shadow(color: _neonCyan, blurRadius: 32),
+            ],
           ),
         ),
-        const SizedBox(width: 4),
+        const SizedBox(width: 5),
         const Padding(
-          padding: EdgeInsets.only(bottom: 4),
+          padding: EdgeInsets.only(bottom: 5),
           child: Text(
             'COMBO',
             style: TextStyle(
               color: _neonCyan,
-              fontSize: 8,
-              letterSpacing: 4,
+              fontSize: 9,
+              letterSpacing: 5,
               fontWeight: FontWeight.w700,
+              shadows: [Shadow(color: _neonCyan, blurRadius: 8)],
             ),
           ),
         ),
@@ -1499,68 +1535,123 @@ class _GamePainter extends CustomPainter {
 
     for (var i = 0; i < notes.length; i++) {
       final note = notes[i];
+      if (note.isPreamble) continue;
 
-      // Hold note that was tapped: drain animation (shrinks toward tail).
+      // Tapped hold: expire once the full duration is consumed.
       final tapMs = holdStartMs[i];
       if (tapMs != null) {
         final holdProgress = ((displayMs - tapMs) / note.durationMs).clamp(
           0.0,
           1.0,
         );
-        if (holdProgress >= 1.0) continue; // fully drained
-        final lane = _toLane(note.angle);
-        final headLaneW = _perspLaneW(1.0, size.width);
-        final remainingFrac =
-            (1.0 - holdProgress) * (note.durationMs / travelMs);
-        _drawHoldNote(
-          canvas,
-          lane,
-          headLaneW,
-          judgeY,
-          remainingFrac,
-          judgeY,
-          1.0,
-          size.width,
-        );
-        continue;
+        if (holdProgress >= 1.0) continue;
+        // Fall through so natural progress drives the position.
       }
 
       final j = results[i];
-      if (j != null && j != Judgement.miss) continue;
+      final isHit = j == Judgement.perfect || j == Judgement.good;
 
-      // Note spawns early enough to reach the judgment line at
-      // displayMs = hitTimeMs + _judgeOffsetMs, regardless of travelMs.
-      final spawnMs = note.hitTimeMs + _judgeOffsetMs - travelMs;
+      final double spawnMs = note.hitTimeMs + _judgeOffsetMs - travelMs;
       if (displayMs < spawnMs) continue;
 
-      final progress = (displayMs - spawnMs) / travelMs;
-      if (progress > 1.0 + _exitMs / travelMs) continue;
+      final double progress = (displayMs - spawnMs) / travelMs;
+      final double barLenFraction = note.durationMs / travelMs;
 
-      final opacity = progress >= 1.0
-          ? (1.0 - (progress - 1.0) * travelMs / _exitMs).clamp(0.0, 1.0)
-          : 1.0;
+      // Hit notes always use natural constant-speed flow along the lane.
+      // Missed notes use the _exitMs formula (fade while slowing to screen edge).
+      final maxProgress = (tapMs != null || isHit)
+          ? size.height / judgeY + barLenFraction
+          : 1.0 + _exitMs / travelMs;
+      if (progress > maxProgress) continue;
+
+      // Tap notes: hide ghost until the note reaches the line.
+      if (isHit && note.type == NoteType.tap && progress < 1.0) continue;
 
       final lane = _toLane(note.angle);
-      final noteY = judgeY * progress;
-      // Clamp progress to [0,1] for position/size (exit goes below judgeY)
-      final p = progress.clamp(0.0, 1.0);
+      // Hit notes: judgeY * progress (constant speed, follows lane perspective).
+      // Missed notes: _exitMs-based formula after the line.
+      final double noteY;
+      if (!isHit && tapMs == null && progress > 1.0) {
+        final exitFrac = ((progress - 1.0) * travelMs / _exitMs).clamp(
+          0.0,
+          1.0,
+        );
+        noteY = judgeY + (size.height - judgeY) * exitFrac;
+      } else {
+        noteY = judgeY * progress;
+      }
+      // Use unclamped progress for lane X/W on hit notes so they follow
+      // the perspective projection past the judgment line.
+      final double p = isHit && progress > 1.0
+          ? progress
+          : progress.clamp(0.0, 1.0);
       final laneX = _perspX(lane, p, size.width);
       final laneW = _perspLaneW(p, size.width);
 
       if (note.type == NoteType.tap) {
+        final double opacity;
+        if (isHit) {
+          final exitFrac = ((progress - 1.0) * travelMs / _exitMs).clamp(
+            0.0,
+            1.0,
+          );
+          opacity = 0.45 * (1.0 - exitFrac);
+        } else {
+          opacity = progress >= 1.0
+              ? (1.0 - (progress - 1.0) * travelMs / _exitMs).clamp(0.0, 1.0)
+              : 1.0;
+        }
         _drawTapNote(canvas, laneX, laneW, noteY, opacity);
       } else {
-        final barLenFraction = note.durationMs / travelMs;
-        _drawHoldNote(
-          canvas,
-          lane,
-          laneW,
-          noteY,
-          barLenFraction,
-          judgeY,
-          opacity,
-          size.width,
-        );
+        if (isHit) {
+          // Tapped hold: flows through judgeY at constant speed.
+          // Above judgeY → bright; below judgeY → dim, fades as tail clears line.
+          final holdExitFrac = ((progress - 1.0) / barLenFraction).clamp(
+            0.0,
+            1.0,
+          );
+          canvas.save();
+          canvas.clipRect(Rect.fromLTRB(0, 0, size.width, judgeY));
+          _drawHoldNote(
+            canvas,
+            lane,
+            laneW,
+            noteY,
+            barLenFraction,
+            judgeY,
+            1.0,
+            size.width,
+          );
+          canvas.restore();
+          canvas.save();
+          canvas.clipRect(Rect.fromLTRB(0, judgeY, size.width, size.height));
+          _drawHoldNote(
+            canvas,
+            lane,
+            laneW,
+            noteY,
+            barLenFraction,
+            judgeY,
+            0.30 * (1.0 - holdExitFrac),
+            size.width,
+          );
+          canvas.restore();
+        } else {
+          // Non-tapped hold: clamp at judgeY, fade out if missed.
+          final opacity = progress >= 1.0
+              ? (1.0 - (progress - 1.0) * travelMs / _exitMs).clamp(0.0, 1.0)
+              : 1.0;
+          _drawHoldNote(
+            canvas,
+            lane,
+            laneW,
+            noteY.clamp(0.0, judgeY),
+            barLenFraction,
+            judgeY,
+            opacity,
+            size.width,
+          );
+        }
       }
     }
   }
@@ -1613,16 +1704,18 @@ class _GamePainter extends CustomPainter {
     double opacity,
     double screenW,
   ) {
-    // tail progress = head progress - barLenFraction (clamped to 0 so tail doesn't go above screen)
-    final headProgress = (headY / judgeY).clamp(0.0, 1.0);
-    final tailProgress = (headProgress - barLenFraction).clamp(0.0, 1.0);
+    // Use unclamped Y-progress for both head and tail so the bar continues
+    // along the perspective lane extension past the judgment line.
+    final rawHeadProgress = headY / judgeY;
+    final tailProgress = (rawHeadProgress - barLenFraction).clamp(0.0, 1.0);
     final tailY = judgeY * tailProgress;
 
-    final headW = headLaneW * 0.72;
+    final headLaneX = _perspX(lane, rawHeadProgress, screenW);
+    final headActualW = _perspLaneW(rawHeadProgress, screenW) * 0.72;
+    final tailLaneX = _perspX(lane, tailProgress, screenW);
     final tailLaneW = _perspLaneW(tailProgress, screenW);
     final tailW = tailLaneW * 0.72;
-    final headLaneX = _perspX(lane, headProgress, screenW);
-    final tailLaneX = _perspX(lane, tailProgress, screenW);
+    final headW = headActualW;
 
     // Draw as a trapezoid path (wider at bottom/head, narrower at top/tail)
     final path = Path()
@@ -1674,6 +1767,7 @@ class _GamePainter extends CustomPainter {
     final progress = List<double>.filled(_nLanes, 0.0);
     if (travelMs <= 0) return progress;
     for (var i = 0; i < notes.length; i++) {
+      if (notes[i].isPreamble) continue;
       final j = results[i];
       if (j != null && j != Judgement.miss) continue;
       final spawnMs = notes[i].hitTimeMs + _judgeOffsetMs - travelMs;
@@ -1692,38 +1786,155 @@ class _GamePainter extends CustomPainter {
       final age = displayMs - effect.startMs;
       if (age < 0 || age > _effectDurationMs) continue;
       final t = age / _effectDurationMs;
-      final opacity = (1.0 - t).clamp(0.0, 1.0);
-      final rise = t * 36.0;
 
       final lane = _toLane(effect.angle);
       final laneX = _perspX(lane, 1.0, screenW);
-      final textY = judgeY - rise - 6;
+      final laneW = _perspLaneW(1.0, screenW);
+      final isPerfect = effect.judgement == Judgement.perfect;
+      final isGood = effect.judgement == Judgement.good;
 
-      String label;
-      Color labelColor;
-      if (effect.judgement == Judgement.perfect) {
+      // ── Instant flash (PERFECT / GOOD only) ──────────────────────
+      if (effect.judgement != Judgement.miss) {
+        final flashT = (t * 6.0).clamp(0.0, 1.0);
+        final flashA = (1.0 - flashT).clamp(0.0, 1.0);
+        final flashColor = isPerfect ? _neonGold : _neonCyan;
+        // Solid core glow
+        canvas.drawCircle(
+          Offset(laneX, judgeY),
+          laneW * 0.9 * (1.0 - flashT * 0.4),
+          Paint()
+            ..color = flashColor.withAlpha((flashA * 160).toInt())
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
+        );
+        // Wide ambient glow
+        canvas.drawCircle(
+          Offset(laneX, judgeY),
+          laneW * 2.5,
+          Paint()
+            ..color = flashColor.withAlpha((flashA * 55).toInt())
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 22),
+        );
+      }
+
+      // ── Ring bursts (PERFECT / GOOD) ──────────────────────────────
+      if (effect.judgement != Judgement.miss) {
+        final ringColor = isPerfect ? _neonGold : _neonCyan;
+        // Primary ring
+        final r1T = (t * 2.2).clamp(0.0, 1.0);
+        final r1A = (1.0 - r1T).clamp(0.0, 1.0);
+        canvas.drawCircle(
+          Offset(laneX, judgeY),
+          laneW * (0.4 + r1T * 2.0),
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 4.0 * (1.0 - r1T * 0.7)
+            ..color = ringColor.withAlpha((r1A * 230).toInt())
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+        );
+        // Secondary outer ring
+        final r2Color = isPerfect ? _neonGold : _neonCyan;
+        final r2Alpha = isPerfect ? 150 : 70;
+        final r2T = (t * 1.4).clamp(0.0, 1.0);
+        final r2A = (1.0 - r2T).clamp(0.0, 1.0);
+        canvas.drawCircle(
+          Offset(laneX, judgeY),
+          laneW * (0.8 + r2T * 3.2),
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = isPerfect ? 2.0 : 1.0
+            ..color = r2Color.withAlpha((r2A * r2Alpha).toInt()),
+        );
+      }
+
+      // ── Star particles ────────────────────────────────────────────
+      if (isPerfect || isGood) {
+        // Inner dots: 8 for PERFECT, 4 for GOOD (subdued)
+        final nDots = isPerfect ? 8 : 4;
+        final dotSize = isPerfect ? 4.5 : 2.5;
+        final dotAlpha = isPerfect ? 255 : 110;
+        final dotColor = isPerfect ? _neonGold : _neonCyan;
+        final pt = (t * 2.4).clamp(0.0, 1.0);
+        final r = laneW * (0.5 + pt * 2.2);
+        final pa = (1.0 - pt).clamp(0.0, 1.0);
+        for (var k = 0; k < nDots; k++) {
+          final a = k * 2 * pi / nDots - pi / 2;
+          canvas.drawCircle(
+            Offset(laneX + cos(a) * r, judgeY + sin(a) * r),
+            dotSize * (1.0 - pt * 0.5),
+            Paint()
+              ..color = dotColor.withAlpha((pa * dotAlpha).toInt())
+              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+          );
+        }
+        // Outer diamond dots: PERFECT only
+        if (isPerfect) {
+          final pt2 = (t * 1.8).clamp(0.0, 1.0);
+          final r2 = laneW * (1.0 + pt2 * 3.0);
+          final pa2 = (1.0 - pt2).clamp(0.0, 1.0);
+          for (var k = 0; k < 4; k++) {
+            final a = k * 2 * pi / 4;
+            canvas.drawCircle(
+              Offset(laneX + cos(a) * r2, judgeY + sin(a) * r2),
+              3.0 * (1.0 - pt2 * 0.6),
+              Paint()
+                ..color = Colors.white.withAlpha((pa2 * 220).toInt())
+                ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
+            );
+          }
+        }
+      }
+
+      // ── Judgment text ─────────────────────────────────────────────
+      final String label;
+      final Color labelColor;
+      final double fontSize;
+      if (isPerfect) {
         label = 'PERFECT';
         labelColor = _neonGold;
-      } else if (effect.judgement == Judgement.good) {
+        fontSize = 22;
+      } else if (isGood) {
         label = 'GOOD';
         labelColor = _neonCyan;
+        fontSize = 19;
       } else {
         label = 'MISS';
-        labelColor = _mutedColor;
+        labelColor = const Color(0xFFFF6B6B);
+        fontSize = 16;
       }
+
+      // Scale pop: 1.5 → 1.0 over first 20%, hold, fade in last 35%
+      final scale = 1.0 + 0.5 * (1.0 - (t / 0.20).clamp(0.0, 1.0));
+      final opacity = t < 0.65
+          ? 1.0
+          : (1.0 - (t - 0.65) / 0.35).clamp(0.0, 1.0);
+      final rise = t * 72.0;
 
       final tp = TextPainter(
         text: TextSpan(
           text: label,
           style: TextStyle(
             color: labelColor.withAlpha((opacity * 255).toInt()),
-            fontSize: 10,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 2,
+            fontSize: fontSize,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 2.5,
             shadows: [
               Shadow(
-                color: labelColor.withAlpha((opacity * 150).toInt()),
-                blurRadius: 6,
+                offset: const Offset(1.5, 1.5),
+                color: Colors.black.withAlpha((opacity * 200).toInt()),
+                blurRadius: 0,
+              ),
+              Shadow(
+                offset: const Offset(-1.5, -1.5),
+                color: Colors.black.withAlpha((opacity * 200).toInt()),
+                blurRadius: 0,
+              ),
+              Shadow(
+                color: labelColor.withAlpha((opacity * 240).toInt()),
+                blurRadius: 18,
+              ),
+              Shadow(
+                color: labelColor.withAlpha((opacity * 130).toInt()),
+                blurRadius: 40,
               ),
             ],
           ),
@@ -1731,7 +1942,12 @@ class _GamePainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       );
       tp.layout();
-      tp.paint(canvas, Offset(laneX - tp.width / 2, textY - tp.height));
+
+      canvas.save();
+      canvas.translate(laneX, judgeY - rise - 14);
+      canvas.scale(scale);
+      tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+      canvas.restore();
     }
   }
 
