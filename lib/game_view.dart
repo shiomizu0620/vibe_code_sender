@@ -1693,6 +1693,7 @@ class _GamePainter extends CustomPainter {
     final progress = List<double>.filled(_nLanes, 0.0);
     if (travelMs <= 0) return progress;
     for (var i = 0; i < notes.length; i++) {
+      if (notes[i].isPreamble) continue;
       final j = results[i];
       if (j != null && j != Judgement.miss) continue;
       final spawnMs = notes[i].hitTimeMs + _judgeOffsetMs - travelMs;
@@ -1756,50 +1757,56 @@ class _GamePainter extends CustomPainter {
             ..color = ringColor.withAlpha((r1A * 230).toInt())
             ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
         );
-        // Secondary outer ring (PERFECT only, slower)
-        if (isPerfect) {
-          final r2T = (t * 1.4).clamp(0.0, 1.0);
-          final r2A = (1.0 - r2T).clamp(0.0, 1.0);
-          canvas.drawCircle(
-            Offset(laneX, judgeY),
-            laneW * (0.8 + r2T * 3.2),
-            Paint()
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = 2.0
-              ..color = _neonGold.withAlpha((r2A * 150).toInt()),
-          );
-        }
+        // Secondary outer ring
+        final r2Color = isPerfect ? _neonGold : _neonCyan;
+        final r2Alpha = isPerfect ? 150 : 70;
+        final r2T = (t * 1.4).clamp(0.0, 1.0);
+        final r2A = (1.0 - r2T).clamp(0.0, 1.0);
+        canvas.drawCircle(
+          Offset(laneX, judgeY),
+          laneW * (0.8 + r2T * 3.2),
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = isPerfect ? 2.0 : 1.0
+            ..color = r2Color.withAlpha((r2A * r2Alpha).toInt()),
+        );
       }
 
-      // ── PERFECT star particles (inner + outer ring) ───────────────
-      if (isPerfect) {
-        // Inner 8 dots
+      // ── Star particles ────────────────────────────────────────────
+      if (isPerfect || isGood) {
+        // Inner dots: 8 for PERFECT, 4 for GOOD (subdued)
+        final nDots = isPerfect ? 8 : 4;
+        final dotSize = isPerfect ? 4.5 : 2.5;
+        final dotAlpha = isPerfect ? 255 : 110;
+        final dotColor = isPerfect ? _neonGold : _neonCyan;
         final pt = (t * 2.4).clamp(0.0, 1.0);
         final r = laneW * (0.5 + pt * 2.2);
         final pa = (1.0 - pt).clamp(0.0, 1.0);
-        for (var k = 0; k < 8; k++) {
-          final a = k * 2 * pi / 8 - pi / 2;
+        for (var k = 0; k < nDots; k++) {
+          final a = k * 2 * pi / nDots - pi / 2;
           canvas.drawCircle(
             Offset(laneX + cos(a) * r, judgeY + sin(a) * r),
-            4.5 * (1.0 - pt * 0.5),
+            dotSize * (1.0 - pt * 0.5),
             Paint()
-              ..color = _neonGold.withAlpha((pa * 255).toInt())
+              ..color = dotColor.withAlpha((pa * dotAlpha).toInt())
               ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
           );
         }
-        // Outer 4 diamond dots (offset by 45°)
-        final pt2 = (t * 1.8).clamp(0.0, 1.0);
-        final r2 = laneW * (1.0 + pt2 * 3.0);
-        final pa2 = (1.0 - pt2).clamp(0.0, 1.0);
-        for (var k = 0; k < 4; k++) {
-          final a = k * 2 * pi / 4;
-          canvas.drawCircle(
-            Offset(laneX + cos(a) * r2, judgeY + sin(a) * r2),
-            3.0 * (1.0 - pt2 * 0.6),
-            Paint()
-              ..color = Colors.white.withAlpha((pa2 * 220).toInt())
-              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
-          );
+        // Outer diamond dots: PERFECT only
+        if (isPerfect) {
+          final pt2 = (t * 1.8).clamp(0.0, 1.0);
+          final r2 = laneW * (1.0 + pt2 * 3.0);
+          final pa2 = (1.0 - pt2).clamp(0.0, 1.0);
+          for (var k = 0; k < 4; k++) {
+            final a = k * 2 * pi / 4;
+            canvas.drawCircle(
+              Offset(laneX + cos(a) * r2, judgeY + sin(a) * r2),
+              3.0 * (1.0 - pt2 * 0.6),
+              Paint()
+                ..color = Colors.white.withAlpha((pa2 * 220).toInt())
+                ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
+            );
+          }
         }
       }
 
