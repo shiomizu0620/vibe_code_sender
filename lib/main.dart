@@ -953,7 +953,24 @@ class _SenderPageState extends State<SenderPage> {
   Widget build(BuildContext context) {
     final hasVibrator = _hasVibrator;
     return Scaffold(
-      appBar: AppBar(title: const Text('演奏')),
+      appBar: AppBar(
+        title: const Text('演奏'),
+        actions: [
+          IconButton(
+            tooltip: 'ゲームで演奏',
+            icon: const Icon(Icons.sports_esports),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                // 現在の譜面(_pulses)をそのままゲームに渡して起動する。
+                builder: (gameContext) => GameView(
+                  initialPulses: _pulses,
+                  onNavigateBack: () => Navigator.of(gameContext).pop(),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
       // ヘッダ（番号/URL/トグル）は上に固定、楽譜だけ中央でスクロール、ステータスと
       // 操作（短/長・演奏ボタン）は下に固定する。X1 は打数が多く楽譜が縦に長くなるが、
       // 打鍵ボタンが流れて見えなくならないようにするため（楽譜は現在位置へ自動スクロール）。
