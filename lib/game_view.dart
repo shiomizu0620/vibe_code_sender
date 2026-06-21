@@ -187,15 +187,26 @@ class _GameViewState extends State<GameView>
       final cursorBefore = _gc.cursor;
       _gc.tick(gameMs);
       for (var i = cursorBefore; i < _gc.cursor; i++) {
-        if (_gc.results[i] == Judgement.miss) {
+        final note = _gc.notes[i];
+        final result = _gc.results[i];
+        if (result == Judgement.miss) {
           _effects.add(
             _JudgmentEffect(
               judgement: Judgement.miss,
-              angle: _gc.notes[i].angle,
+              angle: note.angle,
               startMs: ms,
             ),
           );
           _combo = 0;
+        } else if (result == Judgement.perfect && !note.isPreamble) {
+          _effects.add(
+            _JudgmentEffect(
+              judgement: Judgement.perfect,
+              angle: note.angle,
+              startMs: ms,
+            ),
+          );
+          _combo++;
         }
       }
     }
