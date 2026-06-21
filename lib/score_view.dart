@@ -1,3 +1,6 @@
+// SDK 制約 ^3.9.0 では Color.withValues が無いため withOpacity を使う。新しい
+// Flutter では withOpacity が非推奨(info)になるが、互換性優先でこのファイルだけ抑止する。
+// ignore_for_file: deprecated_member_use
 import 'package:flutter/material.dart';
 
 import 'pattern_builder.dart';
@@ -98,8 +101,8 @@ class _PulseChip extends StatelessWidget {
         : isCurrent
         ? scheme.primary
         : isDone
-        ? scheme.primary.withValues(alpha: 0.6)
-        : scheme.onSurface.withValues(alpha: 0.18);
+        ? scheme.primary.withOpacity(0.6)
+        : scheme.onSurface.withOpacity(0.18);
 
     // 現在位置はわずかに拡大＋グロー。短/長で幅は変えるがセルは固定幅にして
     // Wrap が行ごとにガタつかないようにする（自動演奏で顕著なため）。
@@ -115,7 +118,7 @@ class _PulseChip extends StatelessWidget {
         boxShadow: isCurrent
             ? [
                 BoxShadow(
-                  color: markColor.withValues(alpha: 0.5),
+                  color: markColor.withOpacity(0.5),
                   blurRadius: 10,
                   spreadRadius: 1,
                 ),
