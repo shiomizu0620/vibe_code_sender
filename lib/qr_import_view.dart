@@ -231,10 +231,7 @@ class _QrImportPageState extends State<QrImportPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: const Text('VibeCode — QR読み取り'),
-      ),
+      appBar: AppBar(title: const Text('QR読み取り')),
       body: Column(
         children: [
           Expanded(
@@ -246,47 +243,185 @@ class _QrImportPageState extends State<QrImportPage> {
                   onDetect: _onDetect,
                   onDetectError: (error, _) => debugPrint('QR: 検出エラー: $error'),
                 ),
-                // 読み取り枠のガイド。
-                IgnorePointer(
-                  child: Container(
-                    width: 220,
-                    height: 220,
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.white70, width: 2),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-                if (_handling)
-                  const ColoredBox(
-                    color: Colors.black45,
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
+                _ScanOverlay(busy: _handling),
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'URLのQRコードをカメラにかざすと楽譜になります。\n'
-                  '短いURLはX1（直接）、長いURLは登録してid方式で送ります。',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall,
+          _QrGuidePanel(busy: _handling, onPickImage: _pickFromImage),
+        ],
+      ),
+    );
+  }
+}
+
+/// 読み取り枠（四隅ブラケット）と処理中オーバーレイ。カメラ映像の上に重ねる。
+///
+/// カメラ非依存に切り出してあるので、プレビュー（[QrImportPreview]）でも
+/// そのまま再利用できる。
+class _ScanOverlay extends StatelessWidget {
+  const _ScanOverlay({required this.busy});
+
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        // 「ここに合わせる」を伝える四隅ブラケット。
+        const IgnorePointer(
+          child: CustomPaint(
+            size: Size(240, 240),
+            painter: _ScanFramePainter(color: Colors.white),
+          ),
+        ),
+        if (busy)
+          const ColoredBox(
+            color: Colors.black54,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: Colors.white),
+                  SizedBox(height: 12),
+                  Text('読み取り中…', style: TextStyle(color: Colors.white)),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// 下部パネル: 読み取り後の振り分けルールを明示し、画像読み取りへ導く。
+class _QrGuidePanel extends StatelessWidget {
+  const _QrGuidePanel({required this.busy, required this.onPickImage});
+
+  /// 処理中（カメラ/画像の解析・遷移中）。画像読み取りボタンを無効化する。
+  final bool busy;
+  final VoidCallback onPickImage;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.qr_code_scanner, color: theme.colorScheme.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'URLのQRコードをかざすと楽譜になります',
+                  style: theme.textTheme.bodyMedium,
                 ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: _handling ? null : _pickFromImage,
-                  icon: const Icon(Icons.image),
-                  label: const Text('画像から読み取る'),
-                ),
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          FilledButton.tonalIcon(
+            onPressed: busy ? null : onPickImage,
+            icon: const Icon(Icons.image),
+            label: const Text('画像から読み取る'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
             ),
           ),
         ],
       ),
     );
   }
+}
+
+/// QR読み取り画面の**カメラ非依存プレビュー**（カメラ映像の代わりに暗色背景）。
+///
+/// 実機なしで見た目を確認するための導線。実際の [_ScanOverlay] / [_QrGuidePanel]
+/// をそのまま使うので、本番画面と同じ枠・チップ・パネルが描画される。
+class QrImportPreview extends StatelessWidget {
+  const QrImportPreview({super.key, this.busy = false});
+
+  /// 処理中オーバーレイ（読み取り中…）を表示するか。
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('QR読み取り（プレビュー）')),
+      body: Column(
+        children: [
+          Expanded(
+            child: ColoredBox(
+              color: const Color(0xFF202124), // カメラ映像の代わりの暗色背景
+              child: _ScanOverlay(busy: busy),
+            ),
+          ),
+          _QrGuidePanel(busy: busy, onPickImage: () {}),
+        ],
+      ),
+    );
+  }
+}
+
+/// 読み取り枠の四隅ブラケットを描く CustomPainter。
+///
+/// プレーンな矩形より「ここに合わせる」が伝わり、カメラ映像の上でも視認しやすい。
+class _ScanFramePainter extends CustomPainter {
+  const _ScanFramePainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 4
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    const arm = 28.0; // 各ブラケットの腕の長さ
+    final w = size.width;
+    final h = size.height;
+    canvas
+      ..drawPath(
+        Path()
+          ..moveTo(0, arm)
+          ..lineTo(0, 0)
+          ..lineTo(arm, 0),
+        paint,
+      ) // 左上
+      ..drawPath(
+        Path()
+          ..moveTo(w - arm, 0)
+          ..lineTo(w, 0)
+          ..lineTo(w, arm),
+        paint,
+      ) // 右上
+      ..drawPath(
+        Path()
+          ..moveTo(0, h - arm)
+          ..lineTo(0, h)
+          ..lineTo(arm, h),
+        paint,
+      ) // 左下
+      ..drawPath(
+        Path()
+          ..moveTo(w - arm, h)
+          ..lineTo(w, h)
+          ..lineTo(w, h - arm),
+        paint,
+      ); // 右下
+  }
+
+  @override
+  bool shouldRepaint(_ScanFramePainter oldDelegate) =>
+      oldDelegate.color != color;
 }

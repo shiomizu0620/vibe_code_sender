@@ -11,6 +11,7 @@ import 'pattern_builder.dart';
 import 'qr_import_view.dart';
 import 'score_view.dart';
 import 'supabase_service.dart';
+import 'theme.dart';
 import 'vibrator_service.dart';
 
 /// Supabase 接続情報。anon key のみ。コミットせず `--dart-define-from-file`
@@ -61,9 +62,7 @@ class VibeCodeApp extends StatelessWidget {
       // device_preview 連携（無効時は no-op として透過する）。
       locale: DevicePreview.locale(context),
       builder: DevicePreview.appBuilder,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-      ),
+      theme: buildAppTheme(),
       home: configured ? const _RootShell() : const _ConfigNeededPage(),
     );
   }
@@ -118,7 +117,7 @@ class _RootShellState extends State<_RootShell> {
               onDestinationSelected: _onTabChanged,
               destinations: const [
                 NavigationDestination(icon: Icon(Icons.vibration), label: '演奏'),
-                NavigationDestination(icon: Icon(Icons.link), label: 'URL直接'),
+                NavigationDestination(icon: Icon(Icons.link), label: 'URL入力'),
                 NavigationDestination(
                   icon: Icon(Icons.qr_code_scanner),
                   label: 'QR',
@@ -146,7 +145,6 @@ class X1DirectPage extends StatefulWidget {
 
 class _X1DirectPageState extends State<X1DirectPage> {
   final TextEditingController _controller = TextEditingController();
-  String? _error;
 
   @override
   void dispose() {
@@ -154,24 +152,47 @@ class _X1DirectPageState extends State<X1DirectPage> {
     super.dispose();
   }
 
-  void _open() {
+  /// 現在の入力URLを X1 で符号化した場合のプレビュー（送信可否・スキーム・本体長）。
+  ///
+  /// 入力のたびに [encodeUrl] を試し、可否と理由を [_X1Preview] にまとめる。
+  /// 文字数カウンタ用の本体長は [encodeUrl] と同じスキーム除去ルールで数える。
+  /// 入力が空のときは null（プレビュー非表示）。
+  _X1Preview? _preview() {
     final url = _controller.text.trim();
-    if (url.isEmpty) {
-      setState(() => _error = 'URL を入力してください');
-      return;
-    }
-    // 演奏画面へ渡す前に符号化可否を検証（未対応文字・長さ超過をここで弾く）。
+    if (url.isEmpty) return null;
+    final scheme = url.startsWith('http://') ? 'http' : 'https';
+    final body = url.startsWith('https://')
+        ? url.substring('https://'.length)
+        : url.startsWith('http://')
+        ? url.substring('http://'.length)
+        : url;
     try {
       encodeUrl(url);
+      return _X1Preview(canSend: true, scheme: scheme, bodyLen: body.length);
     } on FormatException {
-      setState(() => _error = 'X1で送れない文字が含まれます（小文字URLのみ対応）');
-      return;
-    } on ArgumentError catch (e) {
-      // 本体が空 / 長すぎ など。エンコーダのメッセージをそのまま表示。
-      setState(() => _error = 'X1で送れません: ${e.message}');
-      return;
+      return _X1Preview(
+        canSend: false,
+        scheme: scheme,
+        bodyLen: body.length,
+        message: '送れない文字が含まれます（小文字のURLのみ対応）',
+      );
+    } on ArgumentError {
+      // エンコーダ内部のメッセージ（"X1"/"本体" 等の用語を含む）はそのまま見せず、
+      // 長さ超過か否かで一般向けの理由に置き換える。
+      return _X1Preview(
+        canSend: false,
+        scheme: scheme,
+        bodyLen: body.length,
+        message: body.length > x1MaxLength
+            ? 'URLが長すぎます（最大 $x1MaxLength 文字）'
+            : '送れないURLです',
+      );
     }
-    setState(() => _error = null);
+  }
+
+  void _open() {
+    if (!(_preview()?.canSend ?? false)) return; // ボタン無効化済みだが二重防御。
+    final url = _controller.text.trim();
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         // id を渡さない＝X1専用で開く（モード切替トグルは出さない）。
@@ -182,51 +203,201 @@ class _X1DirectPageState extends State<X1DirectPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final preview = _preview();
+    final canSend = preview?.canSend ?? false;
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: const Text('VibeCode — URL直接 (X1)'),
-      ),
+      appBar: AppBar(title: const Text('登録なしで送信')),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 480),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  '登録不要で短URLをそのまま振動で送ります（X1モード）。\n'
-                  '小文字のみ・本体は最大 $x1MaxLength 文字。',
-                  style: Theme.of(context).textTheme.bodyMedium,
+            child: Card(
+              elevation: 0,
+              color: theme.colorScheme.surfaceContainerHighest,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // ヘッダ: どのモードで送るかを明示。
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          backgroundColor: theme.colorScheme.primaryContainer,
+                          foregroundColor: theme.colorScheme.onPrimaryContainer,
+                          child: const Icon(Icons.link),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            '登録なしで送信',
+                            style: theme.textTheme.titleMedium,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    TextField(
+                      controller: _controller,
+                      keyboardType: TextInputType.url,
+                      autocorrect: false,
+                      onChanged: (_) => setState(() {}),
+                      onSubmitted: (_) => _open(),
+                      decoration: InputDecoration(
+                        labelText: '送る URL（小文字）',
+                        hintText: 'github.com',
+                        prefixIcon: const Icon(Icons.public),
+                        filled: true,
+                        fillColor: theme.colorScheme.surface,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _X1StatusPanel(preview: preview),
+                    const SizedBox(height: 20),
+                    FilledButton.icon(
+                      onPressed: canSend ? _open : null,
+                      icon: const Icon(Icons.vibration),
+                      label: const Text('演奏画面を開く'),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _controller,
-                  keyboardType: TextInputType.url,
-                  autocorrect: false,
-                  decoration: InputDecoration(
-                    labelText: '送る URL（小文字）',
-                    hintText: 'github.com',
-                    border: const OutlineInputBorder(),
-                    errorText: _error,
-                  ),
-                  onChanged: (_) {
-                    if (_error != null) setState(() => _error = null);
-                  },
-                  onSubmitted: (_) => _open(),
-                ),
-                const SizedBox(height: 16),
-                FilledButton.icon(
-                  onPressed: _open,
-                  icon: const Icon(Icons.vibration),
-                  label: const Text('演奏画面を開く'),
-                ),
-              ],
+              ),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// X1入力の符号化プレビュー結果（送信可否・スキーム・本体文字数）。
+class _X1Preview {
+  const _X1Preview({
+    required this.canSend,
+    required this.scheme,
+    required this.bodyLen,
+    this.message,
+  });
+
+  /// X1で送信できるか（[encodeUrl] が通ったか）。
+  final bool canSend;
+
+  /// 判定したスキーム表示（'https' / 'http'）。
+  final String scheme;
+
+  /// 本体（スキーム除去後）の文字数。[x1MaxLength] との対比に使う。
+  final int bodyLen;
+
+  /// 送れない理由（[canSend] が false のとき）。
+  final String? message;
+}
+
+/// 入力URLの X1 送信可否・スキーム・本体文字数を視覚化する小パネル。
+class _X1StatusPanel extends StatelessWidget {
+  const _X1StatusPanel({required this.preview});
+
+  final _X1Preview? preview;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final p = preview;
+    if (p == null) {
+      return Text(
+        '小文字のみ・最大 $x1MaxLength 文字まで',
+        style: theme.textTheme.bodySmall,
+      );
+    }
+    final color = p.canSend
+        ? theme.colorScheme.primary
+        : theme.colorScheme.error;
+    final overLength = p.bodyLen > x1MaxLength;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              p.canSend ? Icons.check_circle : Icons.error,
+              size: 18,
+              color: color,
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                p.canSend ? 'このURLはそのまま送れます' : (p.message ?? '送れません'),
+                style: theme.textTheme.bodyMedium?.copyWith(color: color),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _MiniChip(
+              icon: p.scheme == 'https' ? Icons.lock : Icons.lock_open,
+              label: p.scheme,
+            ),
+            _MiniChip(
+              icon: Icons.straighten,
+              label: '長さ ${p.bodyLen} / $x1MaxLength 文字',
+              warning: overLength,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// 角丸の小さな情報チップ（スキーム・文字数などのメタ表示用）。
+class _MiniChip extends StatelessWidget {
+  const _MiniChip({
+    required this.icon,
+    required this.label,
+    this.warning = false,
+  });
+
+  final IconData icon;
+  final String label;
+
+  /// 注意表示（文字数超過など）。true で配色を error に寄せる。
+  final bool warning;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final fg = warning
+        ? theme.colorScheme.error
+        : theme.colorScheme.onSurfaceVariant;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: fg),
+          const SizedBox(width: 4),
+          Text(label, style: theme.textTheme.labelMedium?.copyWith(color: fg)),
+        ],
       ),
     );
   }
@@ -262,10 +433,10 @@ class _ConfigNeededPageState extends State<_ConfigNeededPage> {
     try {
       encodeUrl(url);
     } on FormatException {
-      _showTestError('X1で送れない文字が含まれます（小文字URLのみ対応）');
+      _showTestError('送れない文字が含まれます（小文字のURLのみ対応）');
       return;
-    } on ArgumentError catch (e) {
-      _showTestError('X1で送れません: ${e.message}');
+    } on ArgumentError {
+      _showTestError('登録なしで送れないURLです');
       return;
     }
     Navigator.of(context).push(
@@ -306,7 +477,7 @@ class _ConfigNeededPageState extends State<_ConfigNeededPage> {
                   const Divider(),
                   const SizedBox(height: 16),
                   Text(
-                    'テスト用（Supabase不要・X1確認）',
+                    'テスト用（Supabase不要・登録なしで送信）',
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                   const SizedBox(height: 12),
@@ -324,7 +495,7 @@ class _ConfigNeededPageState extends State<_ConfigNeededPage> {
                   FilledButton.icon(
                     onPressed: _openTestSender,
                     icon: const Icon(Icons.vibration),
-                    label: const Text('演奏画面を開く（X1テスト）'),
+                    label: const Text('演奏画面を開く（テスト）'),
                   ),
                 ],
               ],
@@ -410,8 +581,7 @@ class _UrlListPageState extends State<UrlListPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: const Text('VibeCode — URL一覧'),
+        title: const Text('保存したURL'),
         actions: [
           IconButton(
             onPressed: _refresh,
@@ -422,37 +592,6 @@ class _UrlListPageState extends State<UrlListPage> {
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _urlController,
-                    keyboardType: TextInputType.url,
-                    decoration: const InputDecoration(
-                      labelText: '登録する URL',
-                      hintText: 'https://example.com',
-                      border: OutlineInputBorder(),
-                    ),
-                    onSubmitted: (_) => _register(),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                FilledButton(
-                  onPressed: _registering ? null : _register,
-                  child: _registering
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('登録'),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
           Expanded(
             child: FutureBuilder<List<UrlEntry>>(
               future: _future,
@@ -461,38 +600,144 @@ class _UrlListPageState extends State<UrlListPage> {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (snapshot.hasError) {
-                  return const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Text('読み込みに失敗しました。通信状況を確認してください。'),
-                    ),
+                  return _MessageState(
+                    icon: Icons.cloud_off,
+                    text: '読み込みに失敗しました。\n通信状況を確認してください。',
                   );
                 }
+                // 並び順（id 昇順）は fetchUrls() 側で揃えている。
                 final entries = snapshot.data ?? const [];
                 if (entries.isEmpty) {
-                  return const Center(child: Text('まだURLがありません。上から登録してください。'));
+                  return const _MessageState(
+                    icon: Icons.link_off,
+                    text: 'まだURLがありません。\n下のフォームから登録してください。',
+                  );
                 }
                 return ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                   itemCount: entries.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, i) {
-                    final entry = entries[i];
-                    return ListTile(
-                      leading: CircleAvatar(child: Text('${entry.id}')),
-                      title: Text(
-                        entry.url,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => _openPlayer(entry),
-                    );
-                  },
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  itemBuilder: (context, i) =>
+                      _buildUrlCard(context, entries[i]),
                 );
               },
             ),
           ),
+          _buildRegisterBar(context),
         ],
+      ),
+    );
+  }
+
+  /// 登録済みURL 1件分のカード。id バッジ＋URL＋遷移シェブロン。
+  Widget _buildUrlCard(BuildContext context, UrlEntry entry) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      child: InkWell(
+        onTap: () => _openPlayer(entry),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${entry.id}',
+                  style: TextStyle(
+                    color: scheme.onPrimaryContainer,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  entry.url,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w500),
+                ),
+              ),
+              Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 画面下に固定する登録フォーム。キーボード表示時はその上に持ち上がる。
+  Widget _buildRegisterBar(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainer,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _urlController,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(
+                    hintText: '登録する URL（https://…）',
+                    prefixIcon: Icon(Icons.add_link),
+                  ),
+                  onSubmitted: (_) => _register(),
+                ),
+              ),
+              const SizedBox(width: 12),
+              FilledButton(
+                onPressed: _registering ? null : _register,
+                child: _registering
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('登録'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 一覧が空・エラー時に出すアイコン付きの中央メッセージ。
+class _MessageState extends StatelessWidget {
+  const _MessageState({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 48, color: scheme.onSurfaceVariant),
+            const SizedBox(height: 16),
+            Text(
+              text,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: scheme.onSurfaceVariant, height: 1.5),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -675,11 +920,11 @@ class _SenderPageState extends State<SenderPage> {
       if (url == null) return; // URL不明ならX1不可（ボタン側でも無効化済み）
       try {
         next = encodeUrl(url);
-      } on FormatException catch (e) {
-        _showModeError('このURLはX1で送れません: ${e.message}');
+      } on FormatException {
+        _showModeError('このURLは登録なしで送れません（登録ありに切り替えてください）');
         return;
-      } on ArgumentError catch (e) {
-        _showModeError('このURLはX1で送れません: ${e.message}');
+      } on ArgumentError {
+        _showModeError('このURLは登録なしで送れません（登録ありに切り替えてください）');
         return;
       }
     } else {
@@ -708,78 +953,126 @@ class _SenderPageState extends State<SenderPage> {
   Widget build(BuildContext context) {
     final hasVibrator = _hasVibrator;
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: const Text('VibeCode Sender'),
-      ),
+      appBar: AppBar(title: const Text('演奏')),
       // 楽譜は X1（URL直接）で打数が増えると縦に長くなる。収まる時は中央寄せ、
       // あふれる時はスクロールできるようにして overflow を防ぐ。
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) => SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(20),
             child: ConstrainedBox(
               constraints: BoxConstraints(
-                minHeight: constraints.maxHeight - 48,
+                minHeight: constraints.maxHeight - 40,
               ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
-                  if (hasVibrator == false)
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 16),
-                      child: Text(
-                        'この端末は振動に対応していません。\n'
-                        '（エミュレータ／シミュレータでは物理的な振動は出ません）',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.redAccent),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 480),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: <Widget>[
+                      if (hasVibrator == false) _buildNoVibratorBanner(context),
+                      _buildTargetHeader(context),
+                      const SizedBox(height: 20),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 20,
+                          ),
+                          child: Column(
+                            children: [
+                              ScoreView(
+                                pulses: _pulses,
+                                cursor: _cursor,
+                                mistakes: _mistakes,
+                              ),
+                              const SizedBox(height: 14),
+                              _StatusLine(
+                                phase: _phase,
+                                cursor: _cursor,
+                                total: _pulses.length,
+                                mistakeCount: _mistakes.length,
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
-                  if (widget.url != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(
-                        widget.url!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
-                  if (!widget.isUrlOnly) ...[
-                    Text(
-                      'id: ${widget.id}',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 12),
-                    _buildModeSelector(context),
-                  ] else
-                    Text(
-                      'URL直接モード (X1)',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                  const SizedBox(height: 16),
-                  ScoreView(
-                    pulses: _pulses,
-                    cursor: _cursor,
-                    mistakes: _mistakes,
+                      const SizedBox(height: 28),
+                      _buildButtons(context),
+                      const SizedBox(height: 8),
+                      TextButton(onPressed: _reset, child: const Text('リセット')),
+                    ],
                   ),
-                  const SizedBox(height: 8),
-                  _StatusLine(
-                    phase: _phase,
-                    cursor: _cursor,
-                    total: _pulses.length,
-                    mistakeCount: _mistakes.length,
-                  ),
-                  const SizedBox(height: 32),
-                  _buildButtons(context),
-                  const SizedBox(height: 16),
-                  TextButton(onPressed: _reset, child: const Text('リセット')),
-                ],
+                ),
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  /// 振動非対応端末への注意バナー（赤系コンテナ）。
+  Widget _buildNoVibratorBanner(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.errorContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline, color: scheme.onErrorContainer, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'この端末は振動に対応していません。\n'
+              '（エミュレータ／シミュレータでは物理的な振動は出ません）',
+              style: TextStyle(color: scheme.onErrorContainer, fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 演奏対象の見出し。id方式は番号バッジ＋モード切替、X1は「登録なし」チップ。
+  Widget _buildTargetHeader(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Column(
+      children: [
+        if (!widget.isUrlOnly)
+          _HeaderChip(
+            color: scheme.primaryContainer,
+            onColor: scheme.onPrimaryContainer,
+            label: '番号 ${widget.id}',
+          )
+        else
+          _HeaderChip(
+            color: scheme.secondaryContainer,
+            onColor: scheme.onSecondaryContainer,
+            label: '登録なしで送信',
+            icon: Icons.link,
+          ),
+        if (widget.url != null) ...[
+          const SizedBox(height: 10),
+          Text(
+            widget.url!,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+        if (!widget.isUrlOnly) ...[
+          const SizedBox(height: 14),
+          _buildModeSelector(context),
+        ],
+      ],
     );
   }
 
@@ -795,12 +1088,12 @@ class _SenderPageState extends State<SenderPage> {
       segments: const [
         ButtonSegment<_SendMode>(
           value: _SendMode.id,
-          label: Text('id方式'),
+          label: Text('登録あり'),
           icon: Icon(Icons.tag),
         ),
         ButtonSegment<_SendMode>(
           value: _SendMode.urlDirect,
-          label: Text('URL直接'),
+          label: Text('登録なし'),
           icon: Icon(Icons.link),
         ),
       ],
@@ -836,7 +1129,7 @@ class _SenderPageState extends State<SenderPage> {
           height: 16,
           child: CircularProgressIndicator(strokeWidth: 2),
         ),
-        label: const Text('プリアンブル送出中...'),
+        label: const Text('はじめの合図を送信中...'),
       ),
       _Phase.playing => Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -891,10 +1184,7 @@ class _StatusLine extends StatelessWidget {
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 200),
       child: switch (phase) {
-        _Phase.idle => const Text(
-          'プリアンブルを送出してから演奏を始めます',
-          key: ValueKey('idle'),
-        ),
+        _Phase.idle => const Text('はじめの合図を送ってから演奏を始めます', key: ValueKey('idle')),
         _Phase.preamble => const SizedBox(key: ValueKey('preamble')),
         _Phase.playing => Text(
           '$cursor / $total 打',
@@ -917,6 +1207,45 @@ class _StatusLine extends StatelessWidget {
           ),
         ),
       },
+    );
+  }
+}
+
+/// 演奏画面の見出しに使う角丸チップ（番号バッジ / 「登録なし」ラベル）。
+class _HeaderChip extends StatelessWidget {
+  const _HeaderChip({
+    required this.color,
+    required this.onColor,
+    required this.label,
+    this.icon,
+  });
+
+  final Color color;
+  final Color onColor;
+  final String label;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 16, color: onColor),
+            const SizedBox(width: 6),
+          ],
+          Text(
+            label,
+            style: TextStyle(color: onColor, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
     );
   }
 }
