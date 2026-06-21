@@ -10,8 +10,8 @@ import 'vibrator_service.dart';
 /// 判定窓（ミリ秒）。hitTime との差の絶対値で判定する。
 ///
 /// 値は調整しやすいよう定数化（issue: Perfect±40ms / Good±90ms）。
-const int perfectWindowMs = 40;
-const int goodWindowMs = 90;
+const int perfectWindowMs = 150;
+const int goodWindowMs = 400;
 
 /// 打ち方の種類。tap=短押し（150ms）、hold=長押し（450ms/プリアンブル700ms）。
 enum NoteType { tap, hold }
@@ -75,7 +75,18 @@ class Note {
 ///
 /// 振動の正確さ最優先のため、プリアンブルは見た目は「長2連」でも実時間は
 /// PROTOCOL 準拠の [preambleOnMs]=700ms で出す（データの long=450ms とは別物）。
-List<Note> buildChart(int id) {
+List<Note> buildChart(int id) =>
+    buildChartFromPulses(encode(id), angleSeed: id);
+
+/// 任意の [Pulse] 列（id方式・X1いずれも可）から譜面（[Note] 列）を生成する。
+///
+/// 先頭にプリアンブル[700ms ON,200ms OFF]×preambleRepeat を付け、続けて各 pulse を
+/// データ音（ON の後に [gapMs] の休符）として並べる。X1 の可変長 pulse 列もそのまま
+/// 譜面化できる（F11 注入式の音ゲーに乗せるためのAPI）。
+///
+/// [angleSeed] は maimai 風の8方向配置の乱数シード。id方式では id を渡して譜面を
+/// 決定的にする。X1 等で id が無い場合は既定値（0）でよい。
+List<Note> buildChartFromPulses(List<Pulse> pulses, {int angleSeed = 0}) {
   // 各音を (durationMs, restMs, bit, isPreamble) で並べる。
   final symbols = <_Symbol>[
     for (var i = 0; i < preambleRepeat; i++)
@@ -85,7 +96,7 @@ List<Note> buildChart(int id) {
         bit: null,
         isPreamble: true,
       ),
-    for (final pulse in encode(id))
+    for (final pulse in pulses)
       _Symbol(
         durationMs: pulse == Pulse.long ? longMs : shortMs,
         restMs: gapMs,
@@ -94,17 +105,27 @@ List<Note> buildChart(int id) {
       ),
   ];
 
+  // Maimai-style: 8 clock positions, seeded by angleSeed for determinism.
+  // Adjacent notes always come from different positions.
+  final rng = Random(angleSeed);
+  var lastPos = -1;
+
   final notes = <Note>[];
   var cursorMs = 0;
   for (var i = 0; i < symbols.length; i++) {
     final s = symbols[i];
+    int pos;
+    do {
+      pos = rng.nextInt(8);
+    } while (pos == lastPos);
+    lastPos = pos;
     notes.add(
       Note(
         type: s.durationMs >= longMs ? NoteType.hold : NoteType.tap,
         bit: s.bit,
         hitTimeMs: cursorMs,
         durationMs: s.durationMs,
-        angle: 2 * pi * i / symbols.length,
+        angle: 2 * pi * pos / 8,
         isPreamble: s.isPreamble,
       ),
     );
@@ -174,6 +195,12 @@ class GameController extends ChangeNotifier {
     reset();
   }
 
+  /// 任意の [Pulse] 列（X1 等）を読み込んで譜面を作り、idle に戻す。
+  void loadPulses(List<Pulse> pulses) {
+    _notes = buildChartFromPulses(pulses);
+    reset();
+  }
+
   void setMode(GameMode value) {
     mode = value;
     notifyListeners();
@@ -215,6 +242,13 @@ class GameController extends ChangeNotifier {
         _results[_cursor] = Judgement.perfect; // 機械発火は常に正確
         _cursor++;
       }
+    } else {
+      // Hybrid: auto-advance notes that passed the good window without being tapped.
+      while (_cursor < _notes.length &&
+          elapsedMs - _notes[_cursor].hitTimeMs > goodWindowMs) {
+        _results[_cursor] = Judgement.miss;
+        _cursor++;
+      }
     }
 
     if (elapsedMs >= chartEndMs) {
@@ -240,7 +274,15 @@ class GameController extends ChangeNotifier {
     return judgement;
   }
 
-  /// 固定長の振動を実時間タイマで一発出す（描画と独立）。
+  /// プリアンブルノーツをカーソルスキップ（外部で振動済みのため発火しない）。
+  void skipPreamble() {
+    while (_cursor < _notes.length && _notes[_cursor].isPreamble) {
+      _results[_cursor] = Judgement.perfect;
+      _cursor++;
+    }
+    notifyListeners();
+  }
+
   void _fire(Note note) {
     _vibrator.play(<int>[0, note.durationMs]);
   }
