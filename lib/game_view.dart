@@ -26,7 +26,7 @@ const int _judgeOffsetMs =
     (preambleOnMs + preambleOffMs) * preambleRepeat; // 1800
 const double _exitMs = 500;
 const int _demoId = 42; // fallback when Supabase is unavailable
-const int _effectDurationMs = 600;
+const int _effectDurationMs = 750;
 
 // ── URL selector mode ────────────────────────────────────────────────
 enum _SelectorMode { list, direct }
@@ -250,6 +250,18 @@ class _GameViewState extends State<GameView>
     });
   }
 
+  // Lane index (0-5) from tap X position (uses full-width spacing at judgeY).
+  int _laneFromX(double x, double screenW) =>
+      (x * _GamePainter._nLanes / screenW).floor().clamp(
+        0,
+        _GamePainter._nLanes - 1,
+      );
+
+  // Lane index (0-5) from a note's angle — same formula as _GamePainter._toLane.
+  int _laneFromAngle(double angle) =>
+      ((angle * 4 / pi).round() % _GamePainter._nLanes + _GamePainter._nLanes) %
+      _GamePainter._nLanes;
+
   void _onPointerDown(Offset localPosition) {
     final screenH = context.size?.height ?? double.infinity;
     if (localPosition.dy < screenH * 0.80) return;
@@ -258,6 +270,24 @@ class _GameViewState extends State<GameView>
     if (gameMs < 0) return;
     final cursor = _gc.cursor;
     if (cursor >= _gc.notes.length) return;
+
+    // Wrong-lane tap → MISS effect at tapped position, no judgment advance.
+    final screenW = context.size?.width ?? double.infinity;
+    final tappedLane = _laneFromX(localPosition.dx, screenW);
+    final noteLane = _laneFromAngle(_gc.notes[cursor].angle);
+    if (tappedLane != noteLane) {
+      setState(() {
+        _effects.add(
+          _JudgmentEffect(
+            judgement: Judgement.miss,
+            angle: tappedLane * pi / 4.0,
+            startMs: _displayMs,
+          ),
+        );
+      });
+      return;
+    }
+
     final j = _gc.onInputDown(gameMs);
     if (j == null) return;
     final tappedNote = _gc.notes[cursor];
@@ -1126,22 +1156,27 @@ class _GameViewState extends State<GameView>
           '$_combo',
           style: const TextStyle(
             color: Colors.white,
-            fontSize: 34,
-            fontWeight: FontWeight.bold,
-            letterSpacing: -1,
-            shadows: [Shadow(color: _neonCyan, blurRadius: 12)],
+            fontSize: 42,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -2,
+            height: 1.0,
+            shadows: [
+              Shadow(color: _neonCyan, blurRadius: 16),
+              Shadow(color: _neonCyan, blurRadius: 32),
+            ],
           ),
         ),
-        const SizedBox(width: 4),
+        const SizedBox(width: 5),
         const Padding(
-          padding: EdgeInsets.only(bottom: 4),
+          padding: EdgeInsets.only(bottom: 5),
           child: Text(
             'COMBO',
             style: TextStyle(
               color: _neonCyan,
-              fontSize: 8,
-              letterSpacing: 4,
+              fontSize: 9,
+              letterSpacing: 5,
               fontWeight: FontWeight.w700,
+              shadows: [Shadow(color: _neonCyan, blurRadius: 8)],
             ),
           ),
         ),
@@ -1426,6 +1461,7 @@ class _GamePainter extends CustomPainter {
 
     for (var i = 0; i < notes.length; i++) {
       final note = notes[i];
+      if (note.isPreamble) continue;
 
       // Tapped hold: expire once the full duration is consumed.
       final tapMs = holdStartMs[i];
@@ -1657,6 +1693,7 @@ class _GamePainter extends CustomPainter {
     final progress = List<double>.filled(_nLanes, 0.0);
     if (travelMs <= 0) return progress;
     for (var i = 0; i < notes.length; i++) {
+      if (notes[i].isPreamble) continue;
       final j = results[i];
       if (j != null && j != Judgement.miss) continue;
       final spawnMs = notes[i].hitTimeMs + _judgeOffsetMs - travelMs;
@@ -1675,38 +1712,155 @@ class _GamePainter extends CustomPainter {
       final age = displayMs - effect.startMs;
       if (age < 0 || age > _effectDurationMs) continue;
       final t = age / _effectDurationMs;
-      final opacity = (1.0 - t).clamp(0.0, 1.0);
-      final rise = t * 36.0;
 
       final lane = _toLane(effect.angle);
       final laneX = _perspX(lane, 1.0, screenW);
-      final textY = judgeY - rise - 6;
+      final laneW = _perspLaneW(1.0, screenW);
+      final isPerfect = effect.judgement == Judgement.perfect;
+      final isGood = effect.judgement == Judgement.good;
 
-      String label;
-      Color labelColor;
-      if (effect.judgement == Judgement.perfect) {
+      // ── Instant flash (PERFECT / GOOD only) ──────────────────────
+      if (effect.judgement != Judgement.miss) {
+        final flashT = (t * 6.0).clamp(0.0, 1.0);
+        final flashA = (1.0 - flashT).clamp(0.0, 1.0);
+        final flashColor = isPerfect ? _neonGold : _neonCyan;
+        // Solid core glow
+        canvas.drawCircle(
+          Offset(laneX, judgeY),
+          laneW * 0.9 * (1.0 - flashT * 0.4),
+          Paint()
+            ..color = flashColor.withAlpha((flashA * 160).toInt())
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
+        );
+        // Wide ambient glow
+        canvas.drawCircle(
+          Offset(laneX, judgeY),
+          laneW * 2.5,
+          Paint()
+            ..color = flashColor.withAlpha((flashA * 55).toInt())
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 22),
+        );
+      }
+
+      // ── Ring bursts (PERFECT / GOOD) ──────────────────────────────
+      if (effect.judgement != Judgement.miss) {
+        final ringColor = isPerfect ? _neonGold : _neonCyan;
+        // Primary ring
+        final r1T = (t * 2.2).clamp(0.0, 1.0);
+        final r1A = (1.0 - r1T).clamp(0.0, 1.0);
+        canvas.drawCircle(
+          Offset(laneX, judgeY),
+          laneW * (0.4 + r1T * 2.0),
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 4.0 * (1.0 - r1T * 0.7)
+            ..color = ringColor.withAlpha((r1A * 230).toInt())
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+        );
+        // Secondary outer ring
+        final r2Color = isPerfect ? _neonGold : _neonCyan;
+        final r2Alpha = isPerfect ? 150 : 70;
+        final r2T = (t * 1.4).clamp(0.0, 1.0);
+        final r2A = (1.0 - r2T).clamp(0.0, 1.0);
+        canvas.drawCircle(
+          Offset(laneX, judgeY),
+          laneW * (0.8 + r2T * 3.2),
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = isPerfect ? 2.0 : 1.0
+            ..color = r2Color.withAlpha((r2A * r2Alpha).toInt()),
+        );
+      }
+
+      // ── Star particles ────────────────────────────────────────────
+      if (isPerfect || isGood) {
+        // Inner dots: 8 for PERFECT, 4 for GOOD (subdued)
+        final nDots = isPerfect ? 8 : 4;
+        final dotSize = isPerfect ? 4.5 : 2.5;
+        final dotAlpha = isPerfect ? 255 : 110;
+        final dotColor = isPerfect ? _neonGold : _neonCyan;
+        final pt = (t * 2.4).clamp(0.0, 1.0);
+        final r = laneW * (0.5 + pt * 2.2);
+        final pa = (1.0 - pt).clamp(0.0, 1.0);
+        for (var k = 0; k < nDots; k++) {
+          final a = k * 2 * pi / nDots - pi / 2;
+          canvas.drawCircle(
+            Offset(laneX + cos(a) * r, judgeY + sin(a) * r),
+            dotSize * (1.0 - pt * 0.5),
+            Paint()
+              ..color = dotColor.withAlpha((pa * dotAlpha).toInt())
+              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+          );
+        }
+        // Outer diamond dots: PERFECT only
+        if (isPerfect) {
+          final pt2 = (t * 1.8).clamp(0.0, 1.0);
+          final r2 = laneW * (1.0 + pt2 * 3.0);
+          final pa2 = (1.0 - pt2).clamp(0.0, 1.0);
+          for (var k = 0; k < 4; k++) {
+            final a = k * 2 * pi / 4;
+            canvas.drawCircle(
+              Offset(laneX + cos(a) * r2, judgeY + sin(a) * r2),
+              3.0 * (1.0 - pt2 * 0.6),
+              Paint()
+                ..color = Colors.white.withAlpha((pa2 * 220).toInt())
+                ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
+            );
+          }
+        }
+      }
+
+      // ── Judgment text ─────────────────────────────────────────────
+      final String label;
+      final Color labelColor;
+      final double fontSize;
+      if (isPerfect) {
         label = 'PERFECT';
         labelColor = _neonGold;
-      } else if (effect.judgement == Judgement.good) {
+        fontSize = 22;
+      } else if (isGood) {
         label = 'GOOD';
         labelColor = _neonCyan;
+        fontSize = 19;
       } else {
         label = 'MISS';
-        labelColor = _mutedColor;
+        labelColor = const Color(0xFFFF6B6B);
+        fontSize = 16;
       }
+
+      // Scale pop: 1.5 → 1.0 over first 20%, hold, fade in last 35%
+      final scale = 1.0 + 0.5 * (1.0 - (t / 0.20).clamp(0.0, 1.0));
+      final opacity = t < 0.65
+          ? 1.0
+          : (1.0 - (t - 0.65) / 0.35).clamp(0.0, 1.0);
+      final rise = t * 72.0;
 
       final tp = TextPainter(
         text: TextSpan(
           text: label,
           style: TextStyle(
             color: labelColor.withAlpha((opacity * 255).toInt()),
-            fontSize: 10,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 2,
+            fontSize: fontSize,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 2.5,
             shadows: [
               Shadow(
-                color: labelColor.withAlpha((opacity * 150).toInt()),
-                blurRadius: 6,
+                offset: const Offset(1.5, 1.5),
+                color: Colors.black.withAlpha((opacity * 200).toInt()),
+                blurRadius: 0,
+              ),
+              Shadow(
+                offset: const Offset(-1.5, -1.5),
+                color: Colors.black.withAlpha((opacity * 200).toInt()),
+                blurRadius: 0,
+              ),
+              Shadow(
+                color: labelColor.withAlpha((opacity * 240).toInt()),
+                blurRadius: 18,
+              ),
+              Shadow(
+                color: labelColor.withAlpha((opacity * 130).toInt()),
+                blurRadius: 40,
               ),
             ],
           ),
@@ -1714,7 +1868,12 @@ class _GamePainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       );
       tp.layout();
-      tp.paint(canvas, Offset(laneX - tp.width / 2, textY - tp.height));
+
+      canvas.save();
+      canvas.translate(laneX, judgeY - rise - 14);
+      canvas.scale(scale);
+      tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+      canvas.restore();
     }
   }
 
