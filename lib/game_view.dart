@@ -1449,10 +1449,9 @@ class _GamePainter extends CustomPainter {
 
       // Hit notes always use natural constant-speed flow along the lane.
       // Missed notes use the _exitMs formula (fade while slowing to screen edge).
-      final maxProgress =
-          (tapMs != null || isHit)
-              ? size.height / judgeY + barLenFraction
-              : 1.0 + _exitMs / travelMs;
+      final maxProgress = (tapMs != null || isHit)
+          ? size.height / judgeY + barLenFraction
+          : 1.0 + _exitMs / travelMs;
       if (progress > maxProgress) continue;
 
       // Tap notes: hide ghost until the note reaches the line.
@@ -1473,7 +1472,9 @@ class _GamePainter extends CustomPainter {
       }
       // Use unclamped progress for lane X/W on hit notes so they follow
       // the perspective projection past the judgment line.
-      final double p = isHit && progress > 1.0 ? progress : progress.clamp(0.0, 1.0);
+      final double p = isHit && progress > 1.0
+          ? progress
+          : progress.clamp(0.0, 1.0);
       final laneX = _perspX(lane, p, size.width);
       final laneW = _perspLaneW(p, size.width);
 
@@ -1486,46 +1487,50 @@ class _GamePainter extends CustomPainter {
           );
           opacity = 0.45 * (1.0 - exitFrac);
         } else {
-          opacity =
-              progress >= 1.0
-                  ? (1.0 - (progress - 1.0) * travelMs / _exitMs).clamp(
-                    0.0,
-                    1.0,
-                  )
-                  : 1.0;
+          opacity = progress >= 1.0
+              ? (1.0 - (progress - 1.0) * travelMs / _exitMs).clamp(0.0, 1.0)
+              : 1.0;
         }
         _drawTapNote(canvas, laneX, laneW, noteY, opacity);
       } else {
         if (isHit) {
           // Tapped hold: flows through judgeY at constant speed.
           // Above judgeY → bright; below judgeY → dim, fades as tail clears line.
-          final holdExitFrac =
-              ((progress - 1.0) / barLenFraction).clamp(0.0, 1.0);
+          final holdExitFrac = ((progress - 1.0) / barLenFraction).clamp(
+            0.0,
+            1.0,
+          );
           canvas.save();
           canvas.clipRect(Rect.fromLTRB(0, 0, size.width, judgeY));
           _drawHoldNote(
-            canvas, lane, laneW, noteY,
-            barLenFraction, judgeY, 1.0, size.width,
+            canvas,
+            lane,
+            laneW,
+            noteY,
+            barLenFraction,
+            judgeY,
+            1.0,
+            size.width,
           );
           canvas.restore();
           canvas.save();
-          canvas.clipRect(
-            Rect.fromLTRB(0, judgeY, size.width, size.height),
-          );
+          canvas.clipRect(Rect.fromLTRB(0, judgeY, size.width, size.height));
           _drawHoldNote(
-            canvas, lane, laneW, noteY, barLenFraction, judgeY,
-            0.30 * (1.0 - holdExitFrac), size.width,
+            canvas,
+            lane,
+            laneW,
+            noteY,
+            barLenFraction,
+            judgeY,
+            0.30 * (1.0 - holdExitFrac),
+            size.width,
           );
           canvas.restore();
         } else {
           // Non-tapped hold: clamp at judgeY, fade out if missed.
-          final opacity =
-              progress >= 1.0
-                  ? (1.0 - (progress - 1.0) * travelMs / _exitMs).clamp(
-                    0.0,
-                    1.0,
-                  )
-                  : 1.0;
+          final opacity = progress >= 1.0
+              ? (1.0 - (progress - 1.0) * travelMs / _exitMs).clamp(0.0, 1.0)
+              : 1.0;
           _drawHoldNote(
             canvas,
             lane,
